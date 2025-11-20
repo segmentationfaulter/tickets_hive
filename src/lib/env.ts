@@ -9,6 +9,8 @@ export const env = createEnv({
     POSTGRES_DB: z.string(),
     POSTGRES_USER: z.string(),
     POSTGRES_PASSWORD_FILE: z.string(),
+    BETTER_AUTH_URL: z.string(),
+    BETTER_AUTH_SECRET_FILE: z.string(),
   },
 
   /**

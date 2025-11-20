@@ -1,6 +1,6 @@
 import express from "express";
-import { env } from "./env.ts";
-import sql from "./db.ts";
+import { env } from "./lib/env.ts";
+import sql from "./lib/db.ts";
 
 const PORT = env.PORT;
 const app = express();
