@@ -1,0 +1,19 @@
+{
+  "name": "tickets-hive",
+  "version": "1.0.0",
+  "description": "",
+  "license": "ISC",
+  "author": "",
+  "type": "module",
+  "scripts": {
+    "start": "node --env-file=.env src/index.ts"
+  },
+  "dependencies": {
+    "@t3-oss/env-core": "^0.13.8",
+    "express": "^5.1.0",
+    "zod": "^4.1.12"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.5"
+  }
+}
