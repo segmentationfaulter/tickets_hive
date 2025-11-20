@@ -1,10 +1,17 @@
 import express from "express";
 import { env } from "./env.ts";
+import sql from "./db.ts";
 
 const PORT = env.PORT;
 const app = express();
 
-app.get("/", (req, res) => {
+app.get("/", async (req, res) => {
+  try {
+    await sql`SELECT 1`;
+    console.log("DB connection success");
+  } catch (err) {
+    console.error("DB conn failed", err);
+  }
   res.send("Hello World!");
 });
 

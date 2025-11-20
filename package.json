@@ -6,11 +6,12 @@
   "author": "",
   "type": "module",
   "scripts": {
-    "start": "node --env-file=.env src/index.ts"
+    "start": "node src/index.ts"
   },
   "dependencies": {
     "@t3-oss/env-core": "^0.13.8",
     "express": "^5.1.0",
+    "postgres": "^3.4.7",
     "zod": "^4.1.12"
   },
   "devDependencies": {

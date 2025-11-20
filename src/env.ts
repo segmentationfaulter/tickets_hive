@@ -4,6 +4,11 @@ import { z } from "zod";
 export const env = createEnv({
   server: {
     PORT: z.string(),
+    POSTGRES_HOST: z.string(),
+    POSTGRES_PORT: z.string(),
+    POSTGRES_DB: z.string(),
+    POSTGRES_USER: z.string(),
+    POSTGRES_PASSWORD_FILE: z.string(),
   },
 
   /**
