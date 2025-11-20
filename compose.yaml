@@ -11,6 +11,7 @@ services:
   server:
     build:
       context: .
+      target: dev
     environment:
       NODE_ENV: production
       PORT: 3000
@@ -21,18 +22,14 @@ services:
       POSTGRES_PASSWORD_FILE: /run/secrets/db-password
     ports:
       - 3000:3000
-
-    # The commented out section below is an example of how to define a PostgreSQL
-    # database that your application can use. `depends_on` tells Docker Compose to
-    # start the database before your application. The `db-data` volume persists the
-    # database data between container restarts. The `db-password` secret is used
-    # to set the database password. You must create `db/password.txt` and add
-    # a password of your choosing to it before running `docker-compose up`.
+      - 9229:9229 # For debugging purpose
     depends_on:
       db:
         condition: service_healthy
     secrets:
       - db-password
+    volumes:
+      - ./src:/usr/src/app/src
   db:
     image: postgres:16
     restart: always

@@ -6,7 +6,7 @@
   "author": "",
   "type": "module",
   "scripts": {
-    "start": "node src/index.ts"
+    "dev": "node --watch src/index.ts"
   },
   "dependencies": {
     "@t3-oss/env-core": "^0.13.8",
