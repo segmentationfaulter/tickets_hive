@@ -6,10 +6,13 @@ declare global {
   }
 }
 
+type UserRole = "user" | "admin";
+
 export interface User {
   id: string;
   email: string;
   name: string;
+  role: UserRole;
   password_hash: string;
   created_at: Date;
   updated_at: Date;
@@ -18,8 +21,19 @@ export interface User {
 export interface DecodedToken {
   userId: string;
   email: string;
+  role: UserRole;
   iat: number;
   exp: number;
+}
+
+export interface Event {
+  id: string;
+  name: string;
+  total_tickets: number;
+  available_tickets: number;
+  event_date: Date;
+  created_at: Date;
+  updated_at: Date;
 }
 
 export interface RegisterPayload {
@@ -31,4 +45,17 @@ export interface RegisterPayload {
 export interface LoginPayload {
   email: string;
   password: string;
+}
+
+export interface CreateEventPayload {
+  name: string;
+  totalTickets: number;
+  eventDate: string; // ISO 8601 format
+}
+
+export interface EventResponse {
+  events: Event[];
+  total: number;
+  limit: number;
+  offset: number;
 }

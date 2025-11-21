@@ -29,7 +29,7 @@ router.post("/register", async (req, res) => {
     const newUser = await sql<User[]>`
       INSERT INTO users (email, password_hash, name)
       VALUES (${payload.email}, ${passwordHash}, ${payload.name})
-      RETURNING id, email, name, created_at, updated_at
+      RETURNING id, email, name, role, created_at, updated_at
     `;
 
     if (newUser.length === 0) {
@@ -38,7 +38,7 @@ router.post("/register", async (req, res) => {
     }
 
     const user = newUser[0];
-    const token = generateToken(user.id, user.email);
+    const token = generateToken(user.id, user.email, user.role);
 
     res.status(201).json({
       user,
@@ -92,7 +92,7 @@ router.post("/login", async (req, res) => {
       return;
     }
 
-    const token = generateToken(user.id, user.email);
+    const token = generateToken(user.id, user.email, user.role);
 
     // Return user without password_hash
     const { password_hash, ...userWithoutPassword } = user;

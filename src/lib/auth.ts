@@ -20,8 +20,12 @@ export async function comparePassword(
   return bcrypt.compare(password, hash);
 }
 
-export function generateToken(userId: string, email: string): string {
-  return jwt.sign({ userId, email }, JWT_SECRET, {
+export function generateToken(
+  userId: string,
+  email: string,
+  role: "user" | "admin" = "user",
+): string {
+  return jwt.sign({ userId, email, role }, JWT_SECRET, {
     expiresIn: JWT_EXPIRATION,
   });
 }
