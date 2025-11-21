@@ -20,6 +20,8 @@ services:
       POSTGRES_DB: tickets_hive
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD_FILE: /run/secrets/db-password
+      JWT_SECRET_FILE: /run/secrets/jwt-secret
+      JWT_EXPIRATION: 24H
     ports:
       - 3000:3000
       - 9229:9229 # For debugging purpose
@@ -28,6 +30,7 @@ services:
         condition: service_healthy
     secrets:
       - db-password
+      - jwt-secret
     volumes:
       - ./src:/usr/src/app/src
   db:
@@ -53,3 +56,5 @@ volumes:
 secrets:
   db-password:
     file: secrets/db_password.txt
+  jwt-secret:
+    file: secrets/jwt_secret.txt

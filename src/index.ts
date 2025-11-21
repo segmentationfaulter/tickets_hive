@@ -1,19 +1,18 @@
 import express from "express";
 import { env } from "./lib/env.ts";
-import sql from "./lib/db.ts";
+import { initializeDatabase } from "./lib/db.ts";
+import authRoutes from "./routes/auth.ts";
 
 const PORT = env.PORT;
 const app = express();
 
-app.get("/", async (req, res) => {
-  try {
-    await sql`SELECT 1`;
-    console.log("DB connection success");
-  } catch (err) {
-    console.error("DB conn failed", err);
-  }
-  res.send("Hello World!");
-});
+app.use(express.json());
+
+// Initialize database
+await initializeDatabase();
+
+// Mount auth routes
+app.use("/auth", authRoutes);
 
 app.listen(PORT, () => {
   console.log(`App listening on port ${PORT}`);
