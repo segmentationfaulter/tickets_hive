@@ -1,8 +1,8 @@
 import { Router } from "express";
 import { z } from "zod";
-import sql from "../lib/db.ts";
-import { hashPassword, comparePassword, generateToken } from "../lib/auth.ts";
-import type { RegisterPayload, LoginPayload, User } from "../types/index.ts";
+import { authService } from "../services/authService.ts";
+import { generateToken } from "../lib/auth.ts";
+import type { RegisterPayload, LoginPayload } from "../types/index.ts";
 
 const router = Router();
 
@@ -22,22 +22,7 @@ router.post("/register", async (req, res) => {
   try {
     const payload: RegisterPayload = registerSchema.parse(req.body);
 
-    // Hash password
-    const passwordHash = await hashPassword(payload.password);
-
-    // Create user
-    const newUser = await sql<User[]>`
-      INSERT INTO users (email, password_hash, name)
-      VALUES (${payload.email}, ${passwordHash}, ${payload.name})
-      RETURNING id, email, name, role, created_at, updated_at
-    `;
-
-    if (newUser.length === 0) {
-      res.status(500).json({ error: "Failed to create user" });
-      return;
-    }
-
-    const user = newUser[0];
+    const user = await authService.register(payload);
     const token = generateToken(user.id, user.email, user.role);
 
     res.status(201).json({
@@ -69,36 +54,11 @@ router.post("/login", async (req, res) => {
   try {
     const payload: LoginPayload = loginSchema.parse(req.body);
 
-    // Find user by email
-    const users = await sql<User[]>`
-      SELECT * FROM users WHERE email = ${payload.email}
-    `;
-
-    if (users.length === 0) {
-      res.status(401).json({ error: "Invalid email or password" });
-      return;
-    }
-
-    const user = users[0];
-
-    // Compare passwords
-    const isPasswordValid = await comparePassword(
-      payload.password,
-      user.password_hash,
-    );
-
-    if (!isPasswordValid) {
-      res.status(401).json({ error: "Invalid email or password" });
-      return;
-    }
-
+    const user = await authService.login(payload);
     const token = generateToken(user.id, user.email, user.role);
 
-    // Return user without password_hash
-    const { password_hash, ...userWithoutPassword } = user;
-
     res.status(200).json({
-      user: userWithoutPassword,
+      user,
       token,
     });
   } catch (error) {
