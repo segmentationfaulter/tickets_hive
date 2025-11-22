@@ -3,6 +3,7 @@ import { z } from "zod";
 import { bookingService } from "../services/bookingService.ts";
 import { verifyJWT } from "../middleware/verify-token.ts";
 import { eventService } from "../services/eventService.ts";
+import { isAppError } from "../lib/errors.ts";
 import type { CreateBookingPayload, BookingResponse } from "../types/index.ts";
 
 const router = Router();
@@ -50,22 +51,12 @@ router.post("/", verifyJWT, async (req, res) => {
       return;
     }
 
-    if (error instanceof Error) {
-      if (error.message === "Event not found") {
-        res.status(404).json({
-          success: false,
-          error: "Event not found",
-        });
-        return;
-      }
-
-      if (error.message === "Event is sold out") {
-        res.status(409).json({
-          success: false,
-          error: "Event is sold out",
-        });
-        return;
-      }
+    if (isAppError(error)) {
+      res.status(error.getStatusCode()).json({
+        success: false,
+        error: error.message,
+      });
+      return;
     }
 
     console.error("Create booking error:", error);
@@ -105,6 +96,14 @@ router.get("/:id", verifyJWT, async (req, res) => {
       return;
     }
 
+    if (isAppError(error)) {
+      res.status(error.getStatusCode()).json({
+        success: false,
+        error: error.message,
+      });
+      return;
+    }
+
     console.error("Get booking error:", error);
     res.status(500).json({
       success: false,
@@ -139,22 +138,12 @@ router.delete("/:id", verifyJWT, async (req, res) => {
       return;
     }
 
-    if (error instanceof Error) {
-      if (error.message === "Booking not found") {
-        res.status(404).json({
-          success: false,
-          error: "Booking not found",
-        });
-        return;
-      }
-
-      if (error.message === "Booking is already cancelled") {
-        res.status(409).json({
-          success: false,
-          error: "Booking is already cancelled",
-        });
-        return;
-      }
+    if (isAppError(error)) {
+      res.status(error.getStatusCode()).json({
+        success: false,
+        error: error.message,
+      });
+      return;
     }
 
     console.error("Cancel booking error:", error);

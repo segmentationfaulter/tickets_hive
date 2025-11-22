@@ -3,6 +3,7 @@ import { z } from "zod";
 import { eventService } from "../services/eventService.ts";
 import { verifyJWT } from "../middleware/verify-token.ts";
 import { requireAdmin } from "../middleware/require-admin.ts";
+import { isAppError } from "../lib/errors.ts";
 import type { CreateEventPayload, EventResponse } from "../types/index.ts";
 
 const router = Router();
@@ -43,6 +44,14 @@ router.post("/", verifyJWT, requireAdmin, async (req, res) => {
         success: false,
         error: "Validation failed",
         details: error.issues,
+      });
+      return;
+    }
+
+    if (isAppError(error)) {
+      res.status(error.getStatusCode()).json({
+        success: false,
+        error: error.message,
       });
       return;
     }
@@ -89,6 +98,14 @@ router.get("/", async (req, res) => {
       return;
     }
 
+    if (isAppError(error)) {
+      res.status(error.getStatusCode()).json({
+        success: false,
+        error: error.message,
+      });
+      return;
+    }
+
     console.error("Get events error:", error);
     res.status(500).json({
       success: false,
@@ -122,6 +139,14 @@ router.get("/:id", async (req, res) => {
         success: false,
         error: "Validation failed",
         details: error.issues,
+      });
+      return;
+    }
+
+    if (isAppError(error)) {
+      res.status(error.getStatusCode()).json({
+        success: false,
+        error: error.message,
       });
       return;
     }

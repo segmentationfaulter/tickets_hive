@@ -1,6 +1,7 @@
 import sql from "../lib/db.ts";
 import { hashPassword, comparePassword } from "../lib/auth.ts";
 import type { RegisterPayload, LoginPayload, User } from "../types/index.ts";
+import { AppError, ErrorCode } from "../lib/errors.ts";
 
 type Database = typeof sql;
 
@@ -23,7 +24,7 @@ function createAuthService(db: Database): AuthService {
       `;
 
       if (newUser.length === 0) {
-        throw new Error("Failed to create user");
+        throw new AppError(ErrorCode.FAILED_TO_CREATE_USER);
       }
 
       return newUser[0];
@@ -36,7 +37,7 @@ function createAuthService(db: Database): AuthService {
       `;
 
       if (users.length === 0) {
-        throw new Error("Invalid email or password");
+        throw new AppError(ErrorCode.INVALID_CREDENTIALS);
       }
 
       const user = users[0];
@@ -48,7 +49,7 @@ function createAuthService(db: Database): AuthService {
       );
 
       if (!isPasswordValid) {
-        throw new Error("Invalid email or password");
+        throw new AppError(ErrorCode.INVALID_CREDENTIALS);
       }
 
       // Return user without password_hash

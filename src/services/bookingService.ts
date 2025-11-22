@@ -1,11 +1,15 @@
 import sql from "../lib/db.ts";
 import type { Booking, CreateBookingPayload } from "../types/index.ts";
 import { eventService } from "./eventService.ts";
+import { AppError, ErrorCode } from "../lib/errors.ts";
 
 type Database = typeof sql;
 
 interface BookingService {
-  createBooking(userId: string, payload: CreateBookingPayload): Promise<Booking>;
+  createBooking(
+    userId: string,
+    payload: CreateBookingPayload,
+  ): Promise<Booking>;
   getBooking(bookingId: string): Promise<Booking | null>;
   cancelBooking(bookingId: string): Promise<Booking>;
 }
@@ -21,12 +25,12 @@ function createBookingService(db: Database): BookingService {
 
       // Step 2: Check if event exists
       if (!event) {
-        throw new Error("Event not found");
+        throw new AppError(ErrorCode.EVENT_NOT_FOUND);
       }
 
       // Step 3: Check if available tickets > 0
       if (event.available_tickets <= 0) {
-        throw new Error("Event is sold out");
+        throw new AppError(ErrorCode.EVENT_SOLD_OUT);
       }
 
       // Step 4: Decrement available_tickets by 1
@@ -46,7 +50,7 @@ function createBookingService(db: Database): BookingService {
       `;
 
       if (bookings.length === 0) {
-        throw new Error("Failed to create booking");
+        throw new AppError(ErrorCode.FAILED_TO_CREATE_BOOKING);
       }
 
       return bookings[0];
@@ -68,12 +72,12 @@ function createBookingService(db: Database): BookingService {
 
       // Step 2: If not found, throw error
       if (!booking) {
-        throw new Error("Booking not found");
+        throw new AppError(ErrorCode.BOOKING_NOT_FOUND);
       }
 
       // Step 3: If already cancelled, throw error
       if (booking.status === "CANCELLED") {
-        throw new Error("Booking is already cancelled");
+        throw new AppError(ErrorCode.BOOKING_ALREADY_CANCELLED);
       }
 
       // Step 4: Update booking status to CANCELLED
@@ -85,7 +89,7 @@ function createBookingService(db: Database): BookingService {
       `;
 
       if (updatedBookings.length === 0) {
-        throw new Error("Failed to cancel booking");
+        throw new AppError(ErrorCode.FAILED_TO_CANCEL_BOOKING);
       }
 
       const updatedBooking = updatedBookings[0];

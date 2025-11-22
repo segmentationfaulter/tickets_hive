@@ -1,5 +1,6 @@
 import sql from "../lib/db.ts";
 import type { Event, CreateEventPayload } from "../types/index.ts";
+import { AppError, ErrorCode } from "../lib/errors.ts";
 
 type Database = typeof sql;
 
@@ -29,7 +30,7 @@ function createEventService(db: Database): EventService {
       `;
 
       if (events.length === 0) {
-        throw new Error("Failed to create event");
+        throw new AppError(ErrorCode.FAILED_TO_CREATE_EVENT);
       }
 
       return events[0];

@@ -2,6 +2,11 @@ import { Router } from "express";
 import { z } from "zod";
 import { authService } from "../services/authService.ts";
 import { generateToken } from "../lib/auth.ts";
+import {
+  ERROR_METADATA,
+  isAppError,
+  isPostgresUniqueConstraintError,
+} from "../lib/errors.ts";
 import type { RegisterPayload, LoginPayload } from "../types/index.ts";
 
 const router = Router();
@@ -36,12 +41,15 @@ router.post("/register", async (req, res) => {
     }
 
     // Handle PostgreSQL unique constraint violation (error code 23505)
-    if (error instanceof Error && "code" in error) {
-      const pgError = error as any;
-      if (pgError.code === "23505") {
-        res.status(409).json({ error: "Email already registered" });
-        return;
-      }
+    if (isPostgresUniqueConstraintError(error)) {
+      const { statusCode, message } = ERROR_METADATA.EMAIL_ALREADY_REGISTERED;
+      res.status(statusCode).json({ error: message });
+      return;
+    }
+
+    if (isAppError(error)) {
+      res.status(error.getStatusCode()).json({ error: error.message });
+      return;
     }
 
     console.error("Register error:", error);
@@ -64,6 +72,11 @@ router.post("/login", async (req, res) => {
   } catch (error) {
     if (error instanceof z.ZodError) {
       res.status(400).json({ error: error.issues });
+      return;
+    }
+
+    if (isAppError(error)) {
+      res.status(error.getStatusCode()).json({ error: error.message });
       return;
     }
 

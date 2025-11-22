@@ -3,6 +3,7 @@ import bcrypt from "bcryptjs";
 import { env } from "./env.ts";
 import fs from "node:fs";
 import { type DecodedToken } from "../types/index.ts";
+import { AppError, ErrorCode } from "./errors.ts";
 
 const JWT_SECRET = fs.readFileSync(env.JWT_SECRET_FILE, "utf8").trim();
 const JWT_EXPIRATION = (env.JWT_EXPIRATION ||
@@ -35,6 +36,6 @@ export function verifyToken(token: string): DecodedToken {
     const decoded = jwt.verify(token, JWT_SECRET) as DecodedToken;
     return decoded;
   } catch (error) {
-    throw new Error("Invalid or expired token");
+    throw new AppError(ErrorCode.INVALID_TOKEN);
   }
 }

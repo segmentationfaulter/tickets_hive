@@ -1,5 +1,6 @@
 import type { Request, Response, NextFunction } from "express";
 import { verifyToken } from "../lib/auth.ts";
+import { isAppError } from "../lib/errors.ts";
 
 export function verifyJWT(
   req: Request,
@@ -22,6 +23,11 @@ export function verifyJWT(
     req.user = decoded;
     next();
   } catch (error) {
-    res.status(401).json({ error: "Invalid or expired token" });
+    if (isAppError(error)) {
+      res.status(error.getStatusCode()).json({ error: error.message });
+    }
+
+    console.error("Error with token verification", error);
+    res.status(500).json({ error: "Internal server error" });
   }
 }
