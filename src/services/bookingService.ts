@@ -20,40 +20,86 @@ function createBookingService(db: Database): BookingService {
       userId: string,
       payload: CreateBookingPayload,
     ): Promise<Booking> {
-      // Step 1: Get event by ID
-      const event = await eventService.getEventById(payload.eventId);
+      /**
+       * Level 2 Implementation: Database Transaction with Pessimistic Locking
+       *
+       * This method uses PostgreSQL transactions with row-level locking (FOR UPDATE)
+       * to prevent race conditions when multiple users try to book tickets concurrently.
+       *
+       * How it works:
+       * 1. BEGIN TRANSACTION - Start atomic operation
+       * 2. SELECT ... FOR UPDATE - Lock the event row (prevents other transactions from reading/modifying)
+       * 3. Validate event exists and has available tickets
+       * 4. Decrement available_tickets
+       * 5. Insert booking record
+       * 6. COMMIT - If all steps succeed, commit changes
+       * 7. ROLLBACK - If any step fails, rollback all changes
+       *
+       * Trade-offs:
+       * ✅ Pros: 100% data integrity, no race conditions, ACID compliance
+       * ⚠️ Cons: Lower throughput (requests serialize), higher latency under load
+       *
+       * Why FOR UPDATE is critical:
+       * Without FOR UPDATE, multiple transactions could read the same available_tickets value
+       * simultaneously, all see tickets available, and all proceed to create bookings,
+       * resulting in overbooking. FOR UPDATE creates a lock that forces other transactions
+       * to wait until this transaction completes (COMMIT or ROLLBACK).
+       */
+      return await db.begin(async (transaction) => {
+        // Step 1: Lock the event row with FOR UPDATE
+        // This prevents other transactions from reading or modifying this event
+        // until our transaction completes (COMMIT or ROLLBACK)
+        const events = await transaction<
+          Array<{
+            id: string;
+            name: string;
+            available_tickets: number;
+          }>
+        >`
+          SELECT id, name, available_tickets
+          FROM events
+          WHERE id = ${payload.eventId}
+          FOR UPDATE
+        `;
 
-      // Step 2: Check if event exists
-      if (!event) {
-        throw new AppError(ErrorCode.EVENT_NOT_FOUND);
-      }
+        // Step 2: Validate event exists
+        if (events.length === 0) {
+          throw new AppError(ErrorCode.EVENT_NOT_FOUND);
+        }
 
-      // Step 3: Check if available tickets > 0
-      if (event.available_tickets <= 0) {
-        throw new AppError(ErrorCode.EVENT_SOLD_OUT);
-      }
+        const event = events[0];
 
-      // Step 4: Decrement available_tickets by 1
-      // ⚠️ INTENTIONALLY NAIVE - This is where race condition occurs!
-      // Multiple concurrent requests can all see available_tickets > 0 and proceed
-      await db`
-        UPDATE events
-        SET available_tickets = available_tickets - 1
-        WHERE id = ${payload.eventId}
-      `;
+        // Step 3: Check if tickets are available
+        // This check is now safe because we hold an exclusive lock on this row
+        if (event.available_tickets <= 0) {
+          throw new AppError(ErrorCode.EVENT_SOLD_OUT);
+        }
 
-      // Step 5: Create booking record
-      const bookings = await db<Booking[]>`
-        INSERT INTO bookings (user_id, event_id, status)
-        VALUES (${userId}, ${payload.eventId}, 'CONFIRMED')
-        RETURNING id, user_id, event_id, status, created_at, updated_at
-      `;
+        // Step 4: Decrement available_tickets (within same transaction)
+        // This happens atomically with the SELECT above
+        await transaction`
+          UPDATE events
+          SET available_tickets = available_tickets - 1,
+              updated_at = NOW()
+          WHERE id = ${payload.eventId}
+        `;
 
-      if (bookings.length === 0) {
-        throw new AppError(ErrorCode.FAILED_TO_CREATE_BOOKING);
-      }
+        // Step 5: Create booking record (within same transaction)
+        // If this fails, the entire transaction rolls back (including the ticket decrement)
+        const bookings = await transaction<Booking[]>`
+          INSERT INTO bookings (user_id, event_id, status)
+          VALUES (${userId}, ${payload.eventId}, 'CONFIRMED')
+          RETURNING id, user_id, event_id, status, created_at, updated_at
+        `;
 
-      return bookings[0];
+        if (bookings.length === 0) {
+          throw new AppError(ErrorCode.FAILED_TO_CREATE_BOOKING);
+        }
+
+        // If we reach here, transaction will COMMIT automatically
+        // The lock is released and other waiting transactions can proceed
+        return bookings[0];
+      });
     },
 
     async getBooking(bookingId: string): Promise<Booking | null> {
@@ -67,41 +113,83 @@ function createBookingService(db: Database): BookingService {
     },
 
     async cancelBooking(bookingId: string): Promise<Booking> {
-      // Step 1: Find booking by ID
-      const booking = await this.getBooking(bookingId);
+      /**
+       * Level 2 Implementation: Transactional Booking Cancellation
+       *
+       * This method uses PostgreSQL transactions with row-level locking (FOR UPDATE)
+       * to ensure atomic cancellation and ticket restoration.
+       *
+       * How it works:
+       * 1. BEGIN TRANSACTION - Start atomic operation
+       * 2. SELECT ... FOR UPDATE - Lock the booking row (prevents double-cancellation)
+       * 3. Validate booking exists and is not already cancelled
+       * 4. Update booking status to CANCELLED
+       * 5. Increment event's available_tickets (restore the ticket)
+       * 6. COMMIT - If all steps succeed, commit changes
+       * 7. ROLLBACK - If any step fails, rollback all changes
+       *
+       * Why FOR UPDATE is critical:
+       * Without FOR UPDATE, two concurrent cancellation requests for the same booking
+       * could both see status='CONFIRMED', both proceed to cancel, and both increment
+       * available_tickets, resulting in incorrect ticket count (+2 instead of +1).
+       * FOR UPDATE ensures only one cancellation can proceed at a time.
+       *
+       * Atomicity guarantee:
+       * Either BOTH the booking is cancelled AND the ticket is restored, or NEITHER happens.
+       * This prevents data inconsistency where a booking is marked cancelled but the
+       * ticket count is not updated (or vice versa).
+       */
+      return await db.begin(async (transaction) => {
+        // Step 1: Lock the booking row with FOR UPDATE
+        // This prevents other transactions from modifying this booking
+        // until our transaction completes (prevents double-cancellation)
+        const bookings = await transaction<Booking[]>`
+          SELECT id, user_id, event_id, status, created_at, updated_at
+          FROM bookings
+          WHERE id = ${bookingId}
+          FOR UPDATE
+        `;
 
-      // Step 2: If not found, throw error
-      if (!booking) {
-        throw new AppError(ErrorCode.BOOKING_NOT_FOUND);
-      }
+        // Step 2: Validate booking exists
+        if (bookings.length === 0) {
+          throw new AppError(ErrorCode.BOOKING_NOT_FOUND);
+        }
 
-      // Step 3: If already cancelled, throw error
-      if (booking.status === "CANCELLED") {
-        throw new AppError(ErrorCode.BOOKING_ALREADY_CANCELLED);
-      }
+        const booking = bookings[0];
 
-      // Step 4: Update booking status to CANCELLED
-      const updatedBookings = await db<Booking[]>`
-        UPDATE bookings
-        SET status = 'CANCELLED', updated_at = NOW()
-        WHERE id = ${bookingId}
-        RETURNING id, user_id, event_id, status, created_at, updated_at
-      `;
+        // Step 3: Check if booking is already cancelled
+        // This check is now safe because we hold an exclusive lock on this row
+        if (booking.status === "CANCELLED") {
+          throw new AppError(ErrorCode.BOOKING_ALREADY_CANCELLED);
+        }
 
-      if (updatedBookings.length === 0) {
-        throw new AppError(ErrorCode.FAILED_TO_CANCEL_BOOKING);
-      }
+        // Step 4: Update booking status to CANCELLED (within same transaction)
+        const updatedBookings = await transaction<Booking[]>`
+          UPDATE bookings
+          SET status = 'CANCELLED', updated_at = NOW()
+          WHERE id = ${bookingId}
+          RETURNING id, user_id, event_id, status, created_at, updated_at
+        `;
 
-      const updatedBooking = updatedBookings[0];
+        if (updatedBookings.length === 0) {
+          throw new AppError(ErrorCode.FAILED_TO_CANCEL_BOOKING);
+        }
 
-      // Step 5: Increment event's available_tickets by 1
-      await db`
-        UPDATE events
-        SET available_tickets = available_tickets + 1
-        WHERE id = ${updatedBooking.event_id}
-      `;
+        const updatedBooking = updatedBookings[0];
 
-      return updatedBooking;
+        // Step 5: Restore the ticket to the event (within same transaction)
+        // If this fails, the entire transaction rolls back (booking stays CONFIRMED)
+        await transaction`
+          UPDATE events
+          SET available_tickets = available_tickets + 1,
+              updated_at = NOW()
+          WHERE id = ${updatedBooking.event_id}
+        `;
+
+        // If we reach here, transaction will COMMIT automatically
+        // Both the booking cancellation and ticket restoration are persisted atomically
+        return updatedBooking;
+      });
     },
   };
 }
