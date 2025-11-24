@@ -2,12 +2,8 @@ import { Router } from "express";
 import { z } from "zod";
 import { authService } from "../services/authService.ts";
 import { generateToken } from "../lib/auth.ts";
-import {
-  ERROR_METADATA,
-  isAppError,
-  isPostgresUniqueConstraintError,
-} from "../lib/errors.ts";
-import type { RegisterPayload, LoginPayload } from "../types/index.ts";
+import { handleError, SuccessResponse } from "../lib/errorHandler.ts";
+import type { RegisterPayload, LoginPayload, User } from "../types/index.ts";
 
 const router = Router();
 
@@ -30,30 +26,15 @@ router.post("/register", async (req, res) => {
     const user = await authService.register(payload);
     const token = generateToken(user.id, user.email, user.role);
 
-    res.status(201).json({
-      user,
-      token,
-    });
+    const response: SuccessResponse<{ user: User; token: string }> = {
+      success: true,
+      data: { user, token },
+      message: "User registered successfully",
+    };
+
+    res.status(201).json(response);
   } catch (error) {
-    if (error instanceof z.ZodError) {
-      res.status(400).json({ error: error.issues });
-      return;
-    }
-
-    // Handle PostgreSQL unique constraint violation (error code 23505)
-    if (isPostgresUniqueConstraintError(error)) {
-      const { statusCode, message } = ERROR_METADATA.EMAIL_ALREADY_REGISTERED;
-      res.status(statusCode).json({ error: message });
-      return;
-    }
-
-    if (isAppError(error)) {
-      res.status(error.getStatusCode()).json({ error: error.message });
-      return;
-    }
-
-    console.error("Register error:", error);
-    res.status(500).json({ error: "Internal server error" });
+    handleError(error, res, "register");
   }
 });
 
@@ -65,23 +46,15 @@ router.post("/login", async (req, res) => {
     const user = await authService.login(payload);
     const token = generateToken(user.id, user.email, user.role);
 
-    res.status(200).json({
-      user,
-      token,
-    });
+    const response: SuccessResponse<{ user: User; token: string }> = {
+      success: true,
+      data: { user, token },
+      message: "Login successful",
+    };
+
+    res.status(200).json(response);
   } catch (error) {
-    if (error instanceof z.ZodError) {
-      res.status(400).json({ error: error.issues });
-      return;
-    }
-
-    if (isAppError(error)) {
-      res.status(error.getStatusCode()).json({ error: error.message });
-      return;
-    }
-
-    console.error("Login error:", error);
-    res.status(500).json({ error: "Internal server error" });
+    handleError(error, res, "login");
   }
 });
 

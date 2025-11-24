@@ -80,7 +80,6 @@ export interface BookingResponse {
   eventId: string;
   status: BookingStatus;
   availableTickets: number;
-  message: string;
 }
 
 export interface CancelBookingPayload {

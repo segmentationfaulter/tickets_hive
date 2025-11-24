@@ -3,8 +3,13 @@ import { z } from "zod";
 import { eventService } from "../services/eventService.ts";
 import { verifyJWT } from "../middleware/verify-token.ts";
 import { requireAdmin } from "../middleware/require-admin.ts";
-import { isAppError } from "../lib/errors.ts";
-import type { CreateEventPayload, EventResponse } from "../types/index.ts";
+import { handleError, SuccessResponse } from "../lib/errorHandler.ts";
+import { ErrorCode } from "../lib/errors.ts";
+import type {
+  CreateEventPayload,
+  EventResponse,
+  Event,
+} from "../types/index.ts";
 
 const router = Router();
 
@@ -33,34 +38,15 @@ router.post("/", verifyJWT, requireAdmin, async (req, res) => {
 
     const event = await eventService.createEvent(payload);
 
-    res.status(201).json({
+    const response: SuccessResponse<Event> = {
       success: true,
       data: event,
       message: "Event created successfully",
-    });
+    };
+
+    res.status(201).json(response);
   } catch (error) {
-    if (error instanceof z.ZodError) {
-      res.status(400).json({
-        success: false,
-        error: "Validation failed",
-        details: error.issues,
-      });
-      return;
-    }
-
-    if (isAppError(error)) {
-      res.status(error.getStatusCode()).json({
-        success: false,
-        error: error.message,
-      });
-      return;
-    }
-
-    console.error("Create event error:", error);
-    res.status(500).json({
-      success: false,
-      error: "Internal server error",
-    });
+    handleError(error, res, "createEvent");
   }
 });
 
@@ -77,40 +63,20 @@ router.get("/", async (req, res) => {
 
     const { events, total } = await eventService.getAllEvents(limit, offset);
 
-    const response: EventResponse = {
-      events,
-      total,
-      limit,
-      offset,
+    const response: SuccessResponse<EventResponse> = {
+      success: true,
+      data: {
+        events,
+        total,
+        limit,
+        offset,
+      },
+      message: "Events retrieved successfully",
     };
 
-    res.status(200).json({
-      success: true,
-      data: response,
-    });
+    res.status(200).json(response);
   } catch (error) {
-    if (error instanceof z.ZodError) {
-      res.status(400).json({
-        success: false,
-        error: "Validation failed",
-        details: error.issues,
-      });
-      return;
-    }
-
-    if (isAppError(error)) {
-      res.status(error.getStatusCode()).json({
-        success: false,
-        error: error.message,
-      });
-      return;
-    }
-
-    console.error("Get events error:", error);
-    res.status(500).json({
-      success: false,
-      error: "Internal server error",
-    });
+    handleError(error, res, "getEvents");
   }
 });
 
@@ -124,38 +90,23 @@ router.get("/:id", async (req, res) => {
     if (!event) {
       res.status(404).json({
         success: false,
-        error: "Event not found",
+        error: {
+          code: ErrorCode.EVENT_NOT_FOUND,
+          message: "Event not found",
+        },
       });
       return;
     }
 
-    res.status(200).json({
+    const response: SuccessResponse<Event> = {
       success: true,
       data: event,
-    });
+      message: "Event retrieved successfully",
+    };
+
+    res.status(200).json(response);
   } catch (error) {
-    if (error instanceof z.ZodError) {
-      res.status(400).json({
-        success: false,
-        error: "Validation failed",
-        details: error.issues,
-      });
-      return;
-    }
-
-    if (isAppError(error)) {
-      res.status(error.getStatusCode()).json({
-        success: false,
-        error: error.message,
-      });
-      return;
-    }
-
-    console.error("Get event error:", error);
-    res.status(500).json({
-      success: false,
-      error: "Internal server error",
-    });
+    handleError(error, res, "getEventById");
   }
 });
 
