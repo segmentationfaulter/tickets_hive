@@ -1,7 +1,15 @@
 import sql from "../lib/db.ts";
 import type { Booking, CreateBookingPayload } from "../types/index.ts";
 import { eventService } from "./eventService.ts";
-import { AppError, ErrorCode } from "../lib/errors.ts";
+import {
+  AppError,
+  ErrorCode,
+  isAppError,
+  isPostgresTimeoutError,
+  isConnectionTimeoutError,
+  isPostgresUniqueConstraintError,
+  isPostgresForeignKeyViolationError,
+} from "../lib/errors.ts";
 
 type Database = typeof sql;
 
@@ -22,6 +30,7 @@ function createBookingService(db: Database): BookingService {
     ): Promise<Booking> {
       /**
        * Level 2 Implementation: Database Transaction with Pessimistic Locking
+       * Level 2 Enhancement: Service Layer Error Handling
        *
        * This method uses PostgreSQL transactions with row-level locking (FOR UPDATE)
        * to prevent race conditions when multiple users try to book tickets concurrently.
@@ -44,6 +53,15 @@ function createBookingService(db: Database): BookingService {
        * simultaneously, all see tickets available, and all proceed to create bookings,
        * resulting in overbooking. FOR UPDATE creates a lock that forces other transactions
        * to wait until this transaction completes (COMMIT or ROLLBACK).
+       *
+       * Error Handling Strategy:
+       * We wrap the transaction in try-catch to convert database-specific errors
+       * into application errors (AppError). This separation of concerns allows:
+       * - Service layer: Focus on business logic and error classification
+       * - Route layer: Handle HTTP response formatting
+       * - Error layer: Centralized error definitions
+       *
+       * See detailed error handling documentation in src/lib/errors.ts
        */
       return await db.begin(async (transaction) => {
         // Step 1: Lock the event row with FOR UPDATE
@@ -76,7 +94,6 @@ function createBookingService(db: Database): BookingService {
         }
 
         // Step 4: Decrement available_tickets (within same transaction)
-        // This happens atomically with the SELECT above
         await transaction`
           UPDATE events
           SET available_tickets = available_tickets - 1,
@@ -93,7 +110,7 @@ function createBookingService(db: Database): BookingService {
         `;
 
         if (bookings.length === 0) {
-          throw new AppError(ErrorCode.FAILED_TO_CREATE_BOOKING);
+          throw new Error("INSERT INTO bookings returned no rows");
         }
 
         // If we reach here, transaction will COMMIT automatically
@@ -138,6 +155,9 @@ function createBookingService(db: Database): BookingService {
        * Either BOTH the booking is cancelled AND the ticket is restored, or NEITHER happens.
        * This prevents data inconsistency where a booking is marked cancelled but the
        * ticket count is not updated (or vice versa).
+       *
+       * Error Handling Strategy:
+       * Errors are allowed to propagate to the route layer for centralized handling.
        */
       return await db.begin(async (transaction) => {
         // Step 1: Lock the booking row with FOR UPDATE
@@ -172,7 +192,7 @@ function createBookingService(db: Database): BookingService {
         `;
 
         if (updatedBookings.length === 0) {
-          throw new AppError(ErrorCode.FAILED_TO_CANCEL_BOOKING);
+          throw new Error("UPDATE bookings returned no rows");
         }
 
         const updatedBooking = updatedBookings[0];

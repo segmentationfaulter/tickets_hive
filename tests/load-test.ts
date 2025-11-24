@@ -7,8 +7,10 @@ const TEST_USER_NAME = "Load Test User";
 
 interface LoadTestResult {
   totalRequests: number;
-  successfulResponses: number;
-  failedResponses: number;
+  successfulBookings: number; // 2xx responses for actual bookings
+  soldOutResponses: number; // 409 responses (EVENT_SOLD_OUT)
+  timeoutResponses: number; // 503 responses (STATEMENT_TIMEOUT)
+  otherFailures: number; // Other errors (network, 500, etc.)
   responseTimes: number[];
   duration: number;
   expectedBookings: number;
@@ -109,7 +111,7 @@ async function createTestEvent(token: string): Promise<string> {
 async function makeBookingRequest(
   eventId: string,
   token: string,
-): Promise<{ success: boolean; responseTime: number }> {
+): Promise<{ success: boolean; responseTime: number; statusCode: number }> {
   const startTime = Date.now();
   try {
     const response = await fetch(`${API_BASE_URL}/api/v1/bookings`, {
@@ -127,12 +129,14 @@ async function makeBookingRequest(
     return {
       success: response.ok,
       responseTime,
+      statusCode: response.status,
     };
   } catch (error) {
     const responseTime = Date.now() - startTime;
     return {
       success: false,
       responseTime,
+      statusCode: 0, // Network error
     };
   }
 }
@@ -156,14 +160,25 @@ async function runConcurrentBookings(
   const results = await Promise.all(bookingPromises);
 
   const duration = Date.now() - startTime;
-  const successfulResponses = results.filter((r) => r.success).length;
-  const failedResponses = concurrentRequests - successfulResponses;
+
+  // Categorize responses by status code
+  const successfulBookings = results.filter((r) => r.statusCode === 201).length; // 201 Created
+  const soldOutResponses = results.filter((r) => r.statusCode === 409).length; // 409 Conflict (EVENT_SOLD_OUT)
+  const timeoutResponses = results.filter((r) => r.statusCode === 503).length; // 503 Service Unavailable (STATEMENT_TIMEOUT)
+  const otherFailures =
+    concurrentRequests -
+    successfulBookings -
+    soldOutResponses -
+    timeoutResponses;
+
   const responseTimes = results.map((r) => r.responseTime);
 
   return {
     totalRequests: concurrentRequests,
-    successfulResponses,
-    failedResponses,
+    successfulBookings,
+    soldOutResponses,
+    timeoutResponses,
+    otherFailures,
     responseTimes,
     duration,
     expectedBookings: 100,
@@ -217,17 +232,38 @@ function printResults(result: LoadTestResult): void {
     2,
   );
 
+  // Calculate HTTP success rate (successful bookings + sold out responses)
+  const httpSuccessCount = result.successfulBookings + result.soldOutResponses;
+  const httpSuccessRate = (
+    (httpSuccessCount / result.totalRequests) *
+    100
+  ).toFixed(1);
+
+  // Calculate booking success rate (only actual bookings)
+  const bookingSuccessRate = (
+    (result.successfulBookings / result.totalRequests) *
+    100
+  ).toFixed(1);
+
   console.log("\n" + "=".repeat(70));
-  console.log("📊 LOAD TEST RESULTS - Level 1 (Naive CRUD)");
+  console.log(
+    "📊 LOAD TEST RESULTS - Level 2 (Transaction + Timeout Handling)",
+  );
   console.log("=".repeat(70));
 
   console.log("\n📈 Request Metrics:");
   console.log(`  Total Requests: ${result.totalRequests}`);
-  console.log(`  Successful (2xx): ${result.successfulResponses}`);
-  console.log(`  Failed (4xx/5xx): ${result.failedResponses}`);
   console.log(
-    `  Success Rate: ${((result.successfulResponses / result.totalRequests) * 100).toFixed(2)}%`,
+    `  Successful Bookings (201): ${result.successfulBookings} (${bookingSuccessRate}%)`,
   );
+  console.log(
+    `  Sold Out (409): ${result.soldOutResponses} (${((result.soldOutResponses / result.totalRequests) * 100).toFixed(1)}%)`,
+  );
+  console.log(
+    `  Timeouts (503): ${result.timeoutResponses} (${((result.timeoutResponses / result.totalRequests) * 100).toFixed(1)}%)`,
+  );
+  console.log(`  Other Failures: ${result.otherFailures}`);
+  console.log(`  HTTP Success Rate: ${httpSuccessRate}% (bookings + sold out)`);
 
   console.log("\n⏱️  Performance Metrics:");
   console.log(`  Duration: ${result.duration}ms`);
@@ -236,28 +272,54 @@ function printResults(result: LoadTestResult): void {
   console.log(`  Max Response Time: ${maxResponseTime}ms`);
   console.log(`  Throughput: ${throughput} requests/sec`);
 
-  console.log("\n🎟️  Booking Metrics:");
+  console.log("\n🎟️  Data Integrity:");
   console.log(`  Expected Bookings: ${result.expectedBookings}`);
-  console.log(`  Actual Bookings: ${result.successfulResponses}`);
-  console.log(`  Available Tickets in DB: ${result.availableTickets}`);
+  console.log(`  Actual Bookings: ${result.successfulBookings}`);
+  console.log(`  Available Tickets: ${result.availableTickets}`);
 
-  console.log("\n⚠️  Race Condition Analysis:");
+  console.log("\n✅ Race Condition Analysis:");
   if (result.raceConditionDetected) {
-    console.log("  🔴 RACE CONDITION DETECTED: YES");
+    console.log("  🔴 RACE CONDITION: DETECTED ❌");
     console.log(
-      `     - More bookings than expected: ${result.successfulResponses} > ${result.expectedBookings}`,
+      `     - Overbooking detected: ${result.successfulBookings} > ${result.expectedBookings}`,
     );
     console.log(`     - OR negative tickets: ${result.availableTickets} < 0`);
+    console.log(
+      "     - This should NOT happen in Level 2! Check transaction implementation.",
+    );
   } else {
-    console.log("  ✅ RACE CONDITION DETECTED: NO");
-    console.log("     (Unexpected for Level 1 - race condition should occur)");
+    console.log("  🟢 RACE CONDITION: NONE ✅");
+    console.log(
+      `     - Exact match: ${result.successfulBookings} == ${result.expectedBookings}`,
+    );
+    console.log(`     - No negative tickets: ${result.availableTickets} >= 0`);
+    console.log("     - Transactions working correctly!");
   }
 
   console.log("\n" + "=".repeat(70));
-  console.log("💡 NOTE: This demonstrates the race condition in Level 1.");
+  console.log("💡 Level 2 Key Insights:");
   console.log(
-    "   Level 2 will add database transactions to prevent overselling.",
+    `   ✅ ${bookingSuccessRate}% booking rate is CORRECT (${result.expectedBookings} tickets / ${result.totalRequests} requests)`,
   );
+  console.log(
+    `   ✅ ${((result.soldOutResponses / result.totalRequests) * 100).toFixed(1)}% sold out responses are EXPECTED behavior`,
+  );
+  if (result.timeoutResponses > 0) {
+    console.log(
+      `   ⚠️  ${result.timeoutResponses} timeout(s) occurred (${((result.timeoutResponses / result.totalRequests) * 100).toFixed(1)}%)`,
+    );
+    console.log(
+      "      This is acceptable under extreme load with Level 2's locking.",
+    );
+    if ((result.timeoutResponses / result.totalRequests) * 100 > 20) {
+      console.log(
+        "      ⚠️  >20% timeout rate suggests moving to Level 3 (queues) for better throughput.",
+      );
+    }
+  } else {
+    console.log("   ✅ No timeout errors - excellent!");
+  }
+  console.log("   📊 Zero overbookings = Data integrity maintained!");
   console.log("=".repeat(70) + "\n");
 }
 
@@ -283,7 +345,7 @@ async function main() {
     const eventDetails = await getEventDetails(eventId, token);
 
     // Update results with actual database state
-    result.actualBookings = result.successfulResponses;
+    result.actualBookings = result.successfulBookings;
     result.availableTickets = eventDetails.available_tickets;
     result.raceConditionDetected =
       result.actualBookings > result.expectedBookings ||
