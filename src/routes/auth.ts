@@ -2,7 +2,7 @@ import { Router } from "express";
 import { z } from "zod";
 import { authService } from "../services/authService.ts";
 import { generateToken } from "../lib/auth.ts";
-import { handleError, SuccessResponse } from "../lib/errorHandler.ts";
+import { handleError, type SuccessResponse } from "../lib/errorHandler.ts";
 import type { RegisterPayload, LoginPayload, User } from "../types/index.ts";
 
 const router = Router();

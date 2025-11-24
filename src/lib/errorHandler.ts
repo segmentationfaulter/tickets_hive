@@ -1,4 +1,4 @@
-import { Response } from "express";
+import { type Response } from "express";
 import { z } from "zod";
 import {
   isAppError,
@@ -31,7 +31,11 @@ export interface SuccessResponse<T = any> {
  * @param res - Express response object
  * @param context - Optional context for logging
  */
-export function handleError(error: unknown, res: Response, context?: string): void {
+export function handleError(
+  error: unknown,
+  res: Response,
+  context?: string,
+): void {
   // Category 1: Validation Errors (400 Bad Request)
   if (error instanceof z.ZodError) {
     res.status(400).json({

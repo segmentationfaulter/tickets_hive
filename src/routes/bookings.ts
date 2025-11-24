@@ -3,7 +3,7 @@ import { z } from "zod";
 import { bookingService } from "../services/bookingService.ts";
 import { verifyJWT } from "../middleware/verify-token.ts";
 import { eventService } from "../services/eventService.ts";
-import { handleError, SuccessResponse } from "../lib/errorHandler.ts";
+import { handleError, type SuccessResponse } from "../lib/errorHandler.ts";
 import { ErrorCode } from "../lib/errors.ts";
 import type {
   CreateBookingPayload,
