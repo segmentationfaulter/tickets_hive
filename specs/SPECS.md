@@ -109,7 +109,7 @@ Instead of writing to Postgres immediately, the API pushes a "job" to a Queue.
 1.  User hits `POST /book`.
 2.  API validates request structure -> Pushes job to Redis (BullMQ) -> Returns `"202 Accepted"` (Booking Pending).
 3.  Worker Service (separate Node process) pulls job from Redis -> Process DB transaction.
-4.  Socket/Polling: User listens for a WebSocket event `"BookingConfirmed"`.
+4.  User receives final booking status through server sent events
 
 ### 3.2 Handling Concurrency in the Worker
 
