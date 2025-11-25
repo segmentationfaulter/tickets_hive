@@ -69,6 +69,8 @@ tickets-hive/
 │       └── index.ts            # TypeScript type definitions
 ├── tests/
 │   └── load-test.ts            # 1000 concurrent request load test
+├── specs/
+│   └── SPECS.md               # 📄 Main specification document (MOST IMPORTANT)
 ├── secrets/                    # Mounted via Docker secrets
 │   ├── db_password.txt
 │   └── jwt_secret.txt
@@ -76,8 +78,20 @@ tickets-hive/
 ├── Dockerfile                  # Multi-stage build (dev/prod)
 ├── package.json                # Node.js dependencies & scripts
 └── LEVEL_2_PLAN.md            # Detailed implementation plan
-└── LEVEL_3_PLAN.md            # Queue-based async architecture
 ```
+
+---
+
+## Specification & Implementation Status
+
+This project is implementing the **official specification** at **`specs/SPECS.md`**. This specification defines four progressive levels of implementation:
+
+- **Level 1 (Junior)**: Basic CRUD operations - ✅ **IMPLEMENTED**
+- **Level 2 (Mid-Level)**: Database transactions with pessimistic locking - ✅ **IMPLEMENTED**  
+- **Level 3 (Senior)**: Queue-based async processing with BullMQ & Redis - 🔄 **UPCOMING**
+- **Level 4 (Principal)**: Idempotency & distributed locking for resilience - 📋 **PLANNED**
+
+**IMPORTANT**: Always refer to `specs/SPECS.md` first when working on this project. It contains the canonical requirements and architecture decisions for each level.
 
 ---
 
@@ -245,7 +259,7 @@ Three-layer error architecture:
 // 2. Service Layer: Throw AppError with specific codes
 throw new AppError(ErrorCode.EVENT_SOLD_OUT);
 
-// 3. Route Layer: HandleError formats as HTTP response
+// 3. Route Layer: handleError formats as HTTP response
 handleError(error, res, "createBooking");
 ```
 
@@ -507,12 +521,11 @@ const events = await sql(`SELECT * FROM events WHERE id = '${userInput}'`);
 
 **Current State**: No built-in rate limiting (Level 2 limitation)
 
-**Level 3 Enhancement** (from LEVEL_3_PLAN.md):
+**Level 3 Enhancement**: Rate limiting will be added as part of queue-based architecture
 ```typescript
-// Will add rate limiting
 - Per-user: 10 requests/minute
 - Per-IP: 100 requests/minute
-- Queue-based backpressure: stop accepting if queue depth > 1000
+- Queue-based backpressure per Level 3 specification
 ```
 
 **Production Recommendations**:
@@ -639,7 +652,7 @@ echo "jwtsecretkey" > secrets/jwt_secret.txt
 
 ## Future Enhancements (Level 3)
 
-The project has a detailed plan for Level 3 implementation in `LEVEL_3_PLAN.md`.
+Level 3 implementation details are defined in the specification `specs/SPECS.md`.
 
 ### Key Changes from Level 2 → Level 3
 
@@ -676,7 +689,7 @@ Client → API → Queue job → Response (202 Accepted) → Client
 - Simpler implementation than WebSockets
 - Built-in browser support and auto-reconnection
 
-See `LEVEL_3_PLAN.md` for complete implementation details and milestones.
+For complete Level 3 requirements and implementation details, see `specs/SPECS.md`.
 
 ---
 
@@ -684,37 +697,42 @@ See `LEVEL_3_PLAN.md` for complete implementation details and milestones.
 
 ### When Working on This Project
 
-**1. Respect the Transaction Pattern**
+**1. Read the Specification First**
+- Always start with `specs/SPECS.md` - it's the canonical source of requirements
+- The specification defines four levels (1-4) with clear acceptance criteria
+- Current implementation: Levels 1 & 2 complete, Level 3 is next
+
+**2. Respect the Transaction Pattern**
 - Every booking operation MUST use `sql.begin()`
 - Always lock event/booking rows with `FOR UPDATE` before reading
 - Never split operations across multiple transactions for same booking
 
-**2. Error Code Consistency**
+**3. Error Code Consistency**
 - Use `ErrorCode` constants from `src/lib/errors.ts` (never magic strings)
 - Map to correct HTTP status codes via `ERROR_METADATA`
 - Distinguish business logic errors (4xx) from infrastructure errors (5xx)
 
-**3. Never Hardcode Secrets**
+**4. Never Hardcode Secrets**
 - Always use environment variables or Docker secrets
 - Password files must be read via `fs.readFileSync(env.POSTGRES_PASSWORD_FILE)`
 - Application should fail fast if secrets unavailable
 
-**4. Test Concurrency on Every Change**
+**5. Test Concurrency on Every Change**
 - Run `npm run test:load` after any booking-related changes
 - Verify: 100 bookings, 0 overbookings, available_tickets ≥ 0
 - If timeout rate >20%, the change breaks Level 2 assumptions
 
-**5. Documentation Comments Required**
+**6. Documentation Comments Required**
 - Every service method needs Level X implementation explanation
 - Document trade-offs, why specific patterns chosen
 - Reference the race condition the code prevents
 
-**6. Database First**
+**7. Database First**
 - Schema changes require updating `initializeDatabase()` in `src/lib/db.ts`
 - Test schema initialization: `docker compose down -v && docker compose up -d`
 - Indexes on foreign keys for performance (user_id, event_id)
 
-**7. Production-Ready Mindset**
+**8. Production-Ready Mindset**
 - Fails fast with clear error messages
 - Structured logging (consider adding Pino for Level 3)
 - Graceful degradation strategies
@@ -722,6 +740,7 @@ See `LEVEL_3_PLAN.md` for complete implementation details and milestones.
 
 ### Common Pitfalls to Avoid
 
+- ❌ Not reading `specs/SPECS.md` before making changes
 - ❌ Removing `FOR UPDATE` from SELECT queries (reintroduces race conditions)
 - ❌ Increasing `statement_timeout` beyond 5s (hides performance problems)
 - ❌ Adding new endpoints without Zod validation
@@ -734,10 +753,12 @@ See `LEVEL_3_PLAN.md` for complete implementation details and milestones.
 
 ## Getting Help
 
+**Specification Source**: Always start with **`specs/SPECS.md`** - it defines all levels and requirements.
+
 **File References**:
 - Architecture details: `README.md` (730 lines of comprehensive docs)
 - Level 2 implementation: `LEVEL_2_PLAN.md`
-- Level 3 architecture: `LEVEL_3_PLAN.md` (queue-based async)
+- Specification: `specs/SPECS.md` (defines all levels 1-4)
 - Load test results: `tests/load-test.ts` (run for current performance)
 
 **Database queries**: Check `src/lib/db.ts` for complete schema and initialization logic.
