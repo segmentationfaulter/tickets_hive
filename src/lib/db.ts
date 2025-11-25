@@ -2,7 +2,23 @@ import fs from "node:fs";
 import postgres from "postgres";
 import { env } from "./env.ts";
 
-const password = fs.readFileSync(env.POSTGRES_PASSWORD_FILE, "utf8").trim();
+let password: string;
+try {
+  password = fs.readFileSync(env.POSTGRES_PASSWORD_FILE, "utf8").trim();
+} catch (error) {
+  console.error("❌ Failed to read PostgreSQL password file:");
+  console.error(`   File path: ${env.POSTGRES_PASSWORD_FILE}`);
+  console.error(`   Error: ${error.message}`);
+  console.error(
+    "💡 Please ensure the password file exists and contains a valid password",
+  );
+  process.exit(1);
+}
+
+if (!password) {
+  console.error("💡 Please ensure the password file is not empty");
+  process.exit(1);
+}
 
 /**
  * PostgreSQL Connection Configuration for TicketHive

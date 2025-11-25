@@ -11,7 +11,16 @@ const app = express();
 app.use(express.json());
 
 // Initialize database
-await initializeDatabase();
+try {
+  await initializeDatabase();
+  console.log("✅ Database connection established");
+} catch (error) {
+  console.error("❌ Failed to initialize database:", error.message);
+  console.error(
+    "💡 The application will exit - please check database configuration",
+  );
+  process.exit(1);
+}
 
 // Mount routes
 app.use("/auth", authRoutes);
