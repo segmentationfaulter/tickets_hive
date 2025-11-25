@@ -542,6 +542,13 @@ npm run test:load
 - **Bull**: Legacy, fewer features, slower development
 - Decision: Use BullMQ for modern architecture
 
+### Why ioredis over node-redis?
+- **BullMQ Requirement**: BullMQ is built specifically on ioredis and requires it for connection handling (see [docs](https://docs.bullmq.io/guide/connections))
+- **node-redis**: Officially recommended by Redis for new projects, but NOT compatible with BullMQ
+- **ioredis**: The ioredis team recommends node-redis for new projects, creating confusion
+- Decision: Use ioredis because BullMQ mandates it - no choice if we want BullMQ
+- **Future Note**: If BullMQ adds node-redis support in the future, we can re-evaluate
+
 ### Why Monorepo with Turborepo?
 - **Separation**: API and Worker as separate apps
 - **Shared code**: Database, types, utilities in packages
