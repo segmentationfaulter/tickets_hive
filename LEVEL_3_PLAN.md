@@ -182,7 +182,6 @@ SELECT id, name, version FROM events LIMIT 5;
      userId: string;
      eventId: string;
      timestamp: number;
-     idempotencyKey?: string; // For Level 4
    }
    ```
 
