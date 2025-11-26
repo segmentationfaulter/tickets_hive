@@ -1,6 +1,6 @@
 import express from "express";
-import { env } from "./lib/env.ts";
-import { initializeDatabase } from "./lib/db.ts";
+import { env } from "@ticket-hive/lib";
+import { initializeDatabase } from "@ticket-hive/database";
 import authRoutes from "./routes/auth.ts";
 import eventRoutes from "./routes/events.ts";
 import bookingRoutes from "./routes/bookings.ts";
@@ -15,7 +15,8 @@ try {
   await initializeDatabase();
   console.log("✅ Database connection established");
 } catch (error) {
-  console.error("❌ Failed to initialize database:", error.message);
+  const errorMessage = error instanceof Error ? error.message : String(error);
+  console.error("❌ Failed to initialize database:", errorMessage);
   console.error(
     "💡 The application will exit - please check database configuration",
   );

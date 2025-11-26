@@ -1,13 +1,12 @@
-import jwt, { type SignOptions } from "jsonwebtoken";
+import jwt from "jsonwebtoken";
 import bcrypt from "bcryptjs";
 import { env } from "./env.ts";
 import fs from "node:fs";
-import { type DecodedToken } from "../types/index.ts";
+import { type DecodedToken } from "@ticket-hive/types";
 import { AppError, ErrorCode } from "./errors.ts";
 
 const JWT_SECRET = fs.readFileSync(env.JWT_SECRET_FILE, "utf8").trim();
-const JWT_EXPIRATION = (env.JWT_EXPIRATION ||
-  "24H") as SignOptions["expiresIn"];
+const JWT_EXPIRATION: string = env.JWT_EXPIRATION || "24h";
 
 export async function hashPassword(password: string): Promise<string> {
   const saltRounds = 10;
@@ -28,7 +27,7 @@ export function generateToken(
 ): string {
   return jwt.sign({ userId, email, role }, JWT_SECRET, {
     expiresIn: JWT_EXPIRATION,
-  });
+  } as jwt.SignOptions);
 }
 
 export function verifyToken(token: string): DecodedToken {

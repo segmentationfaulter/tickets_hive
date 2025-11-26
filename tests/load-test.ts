@@ -1,4 +1,4 @@
-import sql from "../src/lib/db.ts";
+import { sql } from "@ticket-hive/database";
 
 const API_BASE_URL = "http://localhost:3000";
 const TEST_EMAIL = `loadtest-${Date.now()}@example.com`;

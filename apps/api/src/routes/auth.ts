@@ -1,9 +1,8 @@
 import { Router } from "express";
 import { z } from "zod";
 import { authService } from "../services/authService.ts";
-import { generateToken } from "../lib/auth.ts";
-import { handleError, type SuccessResponse } from "../lib/errorHandler.ts";
-import type { RegisterPayload, LoginPayload, User } from "../types/index.ts";
+import { generateToken, handleError } from "@ticket-hive/lib";
+import type { RegisterPayload, LoginPayload, User, SuccessResponse } from "@ticket-hive/types";
 
 const router = Router();
 

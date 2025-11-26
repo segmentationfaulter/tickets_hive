@@ -5,10 +5,18 @@
   "license": "ISC",
   "author": "",
   "type": "module",
+  "packageManager": "npm@11.6.3",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
   "scripts": {
-    "dev": "node --watch src/index.ts",
-    "debug": "node --inspect=0.0.0.0:9229 src/index.ts",
-    "test:load": "node tests/load-test.ts"
+    "dev": "turbo run dev --parallel",
+    "build": "turbo run build",
+    "api:dev": "node --watch --experimental-transform-types apps/api/src/index.ts",
+    "test:load": "node --experimental-transform-types tests/load-test.ts",
+    "docker:build": "docker build --target production -t tickethive:prod .",
+    "docker:dev": "docker compose up -d"
   },
   "dependencies": {
     "@t3-oss/env-core": "^0.13.8",
@@ -21,6 +29,8 @@
   "devDependencies": {
     "@types/bcryptjs": "^2.4.6",
     "@types/express": "^5.0.5",
-    "@types/jsonwebtoken": "^9.0.2"
+    "@types/jsonwebtoken": "^9.0.2",
+    "turbo": "^2.2.3",
+    "typescript": "^5.8.0"
   }
 }

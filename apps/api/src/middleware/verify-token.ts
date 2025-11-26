@@ -1,6 +1,6 @@
 import type { Request, Response, NextFunction } from "express";
-import { verifyToken } from "../lib/auth.ts";
-import { isAppError } from "../lib/errors.ts";
+import { verifyToken } from "@ticket-hive/lib";
+import { isAppError } from "@ticket-hive/lib";
 
 export function verifyJWT(
   req: Request,
@@ -25,6 +25,7 @@ export function verifyJWT(
   } catch (error) {
     if (isAppError(error)) {
       res.status(error.getStatusCode()).json({ error: error.message });
+      return;
     }
 
     console.error("Error with token verification", error);

@@ -1,0 +1,20 @@
+{
+  "name": "@ticket-hive/worker",
+  "version": "1.0.0",
+  "description": "TicketHive worker service for async job processing",
+  "type": "module",
+  "main": "src/index.ts",
+  "scripts": {
+    "dev": "node --watch --experimental-transform-types src/index.ts",
+    "build": "tsc --noEmit",
+    "start": "node --experimental-transform-types src/index.ts"
+  },
+  "dependencies": {
+    "@ticket-hive/database": "^1.0.0",
+    "@ticket-hive/types": "^1.0.0",
+    "@ticket-hive/lib": "^1.0.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.8.0"
+  }
+}

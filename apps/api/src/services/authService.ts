@@ -1,7 +1,7 @@
-import sql from "../lib/db.ts";
-import { hashPassword, comparePassword } from "../lib/auth.ts";
-import type { RegisterPayload, LoginPayload, User } from "../types/index.ts";
-import { AppError, ErrorCode } from "../lib/errors.ts";
+import { sql } from "@ticket-hive/database";
+import { hashPassword, comparePassword } from "@ticket-hive/lib";
+import type { RegisterPayload, LoginPayload, User } from "@ticket-hive/types";
+import { AppError, ErrorCode } from "@ticket-hive/lib";
 
 type Database = typeof sql;
 
@@ -27,7 +27,7 @@ function createAuthService(db: Database): AuthService {
         throw new AppError(ErrorCode.FAILED_TO_CREATE_USER);
       }
 
-      return newUser[0];
+      return newUser[0]!;
     },
 
     async login(payload: LoginPayload): Promise<User> {
@@ -36,11 +36,11 @@ function createAuthService(db: Database): AuthService {
         SELECT * FROM users WHERE email = ${payload.email}
       `;
 
-      if (users.length === 0) {
+      const user = users[0];
+
+      if (!user) {
         throw new AppError(ErrorCode.INVALID_CREDENTIALS);
       }
-
-      const user = users[0];
 
       // Compare passwords
       const isPasswordValid = await comparePassword(

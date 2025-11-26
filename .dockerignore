@@ -29,6 +29,8 @@
 **/secrets.dev.yaml
 **/values.dev.yaml
 **/build
-**/dist
+**/.turbo
+**/*.tsbuildinfo
 LICENSE
-README.md
+*.test.ts
+*.spec.ts

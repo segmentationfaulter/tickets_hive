@@ -2,24 +2,33 @@
 
 ARG NODE_VERSION=24.11.1
 
-FROM node:${NODE_VERSION}-alpine as base
+# Build stage - Type checking only
+FROM node:${NODE_VERSION}-alpine AS builder
+WORKDIR /app
+COPY package*.json tsconfig.json turbo.json ./
+COPY apps/api/package.json ./apps/api/
+COPY packages/database/package.json ./packages/database/
+COPY packages/types/package.json ./packages/types/
+COPY packages/lib/package.json ./packages/lib/
+RUN npm ci
+COPY . .
+# Type check only (no transpilation needed for native TS support)
+RUN npm run build
+
+# Development stage - uses native TypeScript
+FROM node:${NODE_VERSION}-alpine AS development
 WORKDIR /usr/src/app
-EXPOSE 3000
+COPY --from=builder /app ./
+EXPOSE 3000 9229
+CMD ["node", "--experimental-transform-types", "--watch", "apps/api/src/index.ts"]
 
-FROM base as dev
-RUN --mount=type=bind,source=package.json,target=package.json \
-    --mount=type=bind,source=package-lock.json,target=package-lock.json \
-    --mount=type=cache,target=/root/.npm \
-    npm ci --include=dev
-USER node
-COPY . .
-CMD npm run dev
-
-FROM base as prod
-RUN --mount=type=bind,source=package.json,target=package.json \
-    --mount=type=bind,source=package-lock.json,target=package-lock.json \
-    --mount=type=cache,target=/root/.npm \
-    npm ci --omit=dev
-USER node
-COPY . .
-CMD node src/index.ts
+# Production stage - runs TypeScript directly
+FROM node:${NODE_VERSION}-alpine AS production
+WORKDIR /usr/src/app
+# No need to copy compiled dist - run TypeScript source directly
+COPY --from=builder /app/apps/api/src ./apps/api/src
+COPY --from=builder /app/packages ./packages
+COPY --from=builder /app/node_modules ./node_modules
+COPY --from=builder /app/package*.json ./
+COPY --from=builder /app/secrets ./secrets
+CMD ["node", "--experimental-transform-types", "apps/api/src/index.ts"]

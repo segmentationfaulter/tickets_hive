@@ -1,15 +1,16 @@
 import { Router } from "express";
 import { z } from "zod";
 import { eventService } from "../services/eventService.ts";
-import { verifyJWT } from "../middleware/verify-token.ts";
-import { requireAdmin } from "../middleware/require-admin.ts";
-import { handleError, type SuccessResponse } from "../lib/errorHandler.ts";
-import { ErrorCode } from "../lib/errors.ts";
+import { handleError } from "@ticket-hive/lib";
+import { ErrorCode } from "@ticket-hive/lib";
 import type {
   CreateEventPayload,
   EventResponse,
   Event,
-} from "../types/index.ts";
+  SuccessResponse,
+} from "@ticket-hive/types";
+import { verifyJWT } from "../middleware/verify-token.ts";
+import { requireAdmin } from "../middleware/require-admin.ts";
 
 const router = Router();
 

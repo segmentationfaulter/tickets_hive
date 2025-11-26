@@ -1,0 +1,16 @@
+{
+  "name": "@ticket-hive/types",
+  "version": "1.0.0",
+  "description": "Shared TypeScript types and Zod schemas for TicketHive",
+  "type": "module",
+  "main": "src/index.ts",
+  "scripts": {
+    "build": "tsc --noEmit"
+  },
+  "dependencies": {
+    "zod": "^4.1.12"
+  },
+  "devDependencies": {
+    "typescript": "^5.8.0"
+  }
+}

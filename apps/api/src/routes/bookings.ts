@@ -1,15 +1,15 @@
 import { Router } from "express";
 import { z } from "zod";
 import { bookingService } from "../services/bookingService.ts";
-import { verifyJWT } from "../middleware/verify-token.ts";
 import { eventService } from "../services/eventService.ts";
-import { handleError, type SuccessResponse } from "../lib/errorHandler.ts";
-import { ErrorCode } from "../lib/errors.ts";
+import { handleError, ErrorCode } from "@ticket-hive/lib";
 import type {
   CreateBookingPayload,
   BookingResponse,
   Booking,
-} from "../types/index.ts";
+  SuccessResponse,
+} from "@ticket-hive/types";
+import { verifyJWT } from "../middleware/verify-token.ts";
 
 const router = Router();
 

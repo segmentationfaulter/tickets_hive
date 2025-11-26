@@ -1,6 +1,6 @@
-import sql from "../lib/db.ts";
-import type { Event, CreateEventPayload } from "../types/index.ts";
-import { AppError, ErrorCode } from "../lib/errors.ts";
+import { sql } from "@ticket-hive/database";
+import type { Event, CreateEventPayload } from "@ticket-hive/types";
+import { AppError, ErrorCode } from "@ticket-hive/lib";
 
 type Database = typeof sql;
 
@@ -33,7 +33,8 @@ function createEventService(db: Database): EventService {
         throw new AppError(ErrorCode.FAILED_TO_CREATE_EVENT);
       }
 
-      return events[0];
+
+      return events[0]!;
     },
 
     async getAllEvents(
@@ -69,7 +70,8 @@ function createEventService(db: Database): EventService {
         WHERE id = ${eventId}
       `;
 
-      return events.length > 0 ? events[0] : null;
+      const event = events[0];
+      return event ?? null;
     },
   };
 }

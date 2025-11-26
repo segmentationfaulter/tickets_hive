@@ -1,15 +1,9 @@
-import sql from "../lib/db.ts";
-import type { Booking, CreateBookingPayload } from "../types/index.ts";
-import { eventService } from "./eventService.ts";
+import { sql } from "@ticket-hive/database";
+import type { Booking, CreateBookingPayload } from "@ticket-hive/types";
 import {
   AppError,
   ErrorCode,
-  isAppError,
-  isPostgresTimeoutError,
-  isConnectionTimeoutError,
-  isPostgresUniqueConstraintError,
-  isPostgresForeignKeyViolationError,
-} from "../lib/errors.ts";
+} from "@ticket-hive/lib";
 
 type Database = typeof sql;
 
@@ -28,42 +22,7 @@ function createBookingService(db: Database): BookingService {
       userId: string,
       payload: CreateBookingPayload,
     ): Promise<Booking> {
-      /**
-       * Level 2 Implementation: Database Transaction with Pessimistic Locking
-       * Level 2 Enhancement: Service Layer Error Handling
-       *
-       * This method uses PostgreSQL transactions with row-level locking (FOR UPDATE)
-       * to prevent race conditions when multiple users try to book tickets concurrently.
-       *
-       * How it works:
-       * 1. BEGIN TRANSACTION - Start atomic operation
-       * 2. SELECT ... FOR UPDATE - Lock the event row (prevents other transactions from reading/modifying)
-       * 3. Validate event exists and has available tickets
-       * 4. Decrement available_tickets
-       * 5. Insert booking record
-       * 6. COMMIT - If all steps succeed, commit changes
-       * 7. ROLLBACK - If any step fails, rollback all changes
-       *
-       * Trade-offs:
-       * ✅ Pros: 100% data integrity, no race conditions, ACID compliance
-       * ⚠️ Cons: Lower throughput (requests serialize), higher latency under load
-       *
-       * Why FOR UPDATE is critical:
-       * Without FOR UPDATE, multiple transactions could read the same available_tickets value
-       * simultaneously, all see tickets available, and all proceed to create bookings,
-       * resulting in overbooking. FOR UPDATE creates a lock that forces other transactions
-       * to wait until this transaction completes (COMMIT or ROLLBACK).
-       *
-       * Error Handling Strategy:
-       * We wrap the transaction in try-catch to convert database-specific errors
-       * into application errors (AppError). This separation of concerns allows:
-       * - Service layer: Focus on business logic and error classification
-       * - Route layer: Handle HTTP response formatting
-       * - Error layer: Centralized error definitions
-       *
-       * See detailed error handling documentation in src/lib/errors.ts
-       */
-      return await db.begin(async (transaction) => {
+      return await db.begin(async (transaction: any) => {
         // Step 1: Lock the event row with FOR UPDATE
         // This prevents other transactions from reading or modifying this event
         // until our transaction completes (COMMIT or ROLLBACK)
@@ -86,6 +45,10 @@ function createBookingService(db: Database): BookingService {
         }
 
         const event = events[0];
+
+        if (!event) {
+          throw new AppError(ErrorCode.EVENT_NOT_FOUND);
+        }
 
         // Step 3: Check if tickets are available
         // This check is now safe because we hold an exclusive lock on this row
@@ -126,7 +89,8 @@ function createBookingService(db: Database): BookingService {
         WHERE id = ${bookingId}
       `;
 
-      return bookings.length > 0 ? bookings[0] : null;
+      const booking = bookings[0];
+      return booking ?? null;
     },
 
     async cancelBooking(bookingId: string): Promise<Booking> {
@@ -159,7 +123,7 @@ function createBookingService(db: Database): BookingService {
        * Error Handling Strategy:
        * Errors are allowed to propagate to the route layer for centralized handling.
        */
-      return await db.begin(async (transaction) => {
+      return await db.begin(async (transaction: any) => {
         // Step 1: Lock the booking row with FOR UPDATE
         // This prevents other transactions from modifying this booking
         // until our transaction completes (prevents double-cancellation)
@@ -176,6 +140,7 @@ function createBookingService(db: Database): BookingService {
         }
 
         const booking = bookings[0];
+
 
         // Step 3: Check if booking is already cancelled
         // This check is now safe because we hold an exclusive lock on this row

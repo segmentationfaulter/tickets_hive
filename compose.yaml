@@ -11,9 +11,9 @@ services:
   server:
     build:
       context: .
-      target: dev
+      target: development
     environment:
-      NODE_ENV: production
+      NODE_ENV: development
       PORT: 3000
       POSTGRES_HOST: db
       POSTGRES_PORT: 5432
@@ -32,7 +32,8 @@ services:
       - db-password
       - jwt-secret
     volumes:
-      - ./src:/usr/src/app/src
+      - ./apps/api/src:/usr/src/app/apps/api/src
+      - ./packages:/usr/src/app/packages
   db:
     image: postgres:16
     restart: always

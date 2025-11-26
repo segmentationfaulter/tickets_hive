@@ -1,0 +1,17 @@
+{
+  "name": "@ticket-hive/database",
+  "version": "1.0.0",
+  "description": "Shared database layer for TicketHive",
+  "type": "module",
+  "main": "src/index.ts",
+  "scripts": {
+    "build": "tsc --noEmit"
+  },
+  "dependencies": {
+    "postgres": "^3.4.7",
+    "zod": "^4.1.12"
+  },
+  "devDependencies": {
+    "typescript": "^5.8.0"
+  }
+}
