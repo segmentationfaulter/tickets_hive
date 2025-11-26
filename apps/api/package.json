@@ -8,16 +8,5 @@
     "dev": "node --watch --experimental-transform-types src/index.ts",
     "build": "tsc --noEmit",
     "start": "node --experimental-transform-types src/index.ts"
-  },
-  "dependencies": {
-    "@ticket-hive/database": "^1.0.0",
-    "@ticket-hive/types": "^1.0.0",
-    "@ticket-hive/lib": "^1.0.0",
-    "express": "^5.1.0",
-    "zod": "^4.1.12"
-  },
-  "devDependencies": {
-    "typescript": "^5.8.0",
-    "@types/express": "^5.0.5"
   }
 }

@@ -6,17 +6,5 @@
   "main": "src/index.ts",
   "scripts": {
     "build": "tsc --noEmit"
-  },
-  "dependencies": {
-    "@ticket-hive/database": "^1.0.0",
-    "@ticket-hive/types": "^1.0.0",
-    "bcryptjs": "^3.0.3",
-    "jsonwebtoken": "^9.0.2",
-    "@t3-oss/env-core": "^0.13.8"
-  },
-  "devDependencies": {
-    "typescript": "^5.8.0",
-    "@types/bcryptjs": "^2.4.6",
-    "@types/jsonwebtoken": "^9.0.2"
   }
 }
