@@ -40,62 +40,91 @@ const events = await transaction`
 
 **Level 3 (In Progress)**: Queue-based async processing with BullMQ + Redis
 
-Level 3 implementation is now actively planned. See `LEVEL_3_PLAN.md` for detailed implementation strategy and requirements.
+Level 3 implementation is now actively planned. See `docs/level3/LEVEL_3_COMPLETE_PLAN.md` for detailed implementation strategy and requirements.
 
 ---
 
 ## Project Structure
 
+### Monorepo Organization (Post-Milestone 0)
+
 ```
 tickets-hive/
-├── src/
-│   ├── index.ts                 # Express app setup and initialization
-│   ├── lib/                     # Core utilities
-│   │   ├── db.ts               # PostgreSQL connection & schema
-│   │   ├── env.ts              # Environment variable validation (@t3-oss/env-core)
-│   │   ├── errors.ts           # Error code constants & error metadata
-│   │   ├── errorHandler.ts     # Centralized error handling utilities
-│   │   └── auth.ts             # JWT signing/verification
-│   ├── middleware/
-│   │   ├── verify-token.ts     # JWT authentication
-│   │   └── require-admin.ts    # Role-based access control
-│   ├── routes/
-│   │   ├── auth.ts             # POST /auth/register, POST /auth/login
-│   │   ├── events.ts           # POST/GET /api/v1/events
-│   │   └── bookings.ts         # POST/GET/DELETE /api/v1/bookings
-│   ├── services/
-│   │   ├── authService.ts      # User registration & authentication
-│   │   ├── eventService.ts     # Event CRUD operations
-│   │   └── bookingService.ts   # Booking transactions (core Level 2 logic)
-│   └── types/
-│       └── index.ts            # TypeScript type definitions
-├── tests/
-│   └── load-test.ts            # 1000 concurrent request load test
-├── specs/
-│   └── SPECS.md               # 📄 Main specification document (MOST IMPORTANT)
-├── secrets/                    # Mounted via Docker secrets
+├── apps/                       # 🚀 Deployable applications
+│   ├── api/                   # Express API service
+│   │   ├── package.json
+│   │   └── src/
+│   │       ├── index.ts       # Express app entry point
+│   │       ├── routes/        # HTTP route handlers
+│   │       │   ├── auth.ts
+│   │       │   ├── events.ts
+│   │       │   └── bookings.ts
+│   │       ├── services/      # Business logic (API-specific)
+│   │       │   ├── authService.ts
+│   │       │   ├── eventService.ts
+│   │       │   └── queueService.ts  # Queue job producers (Level 3)
+│   │       └── middleware/    # Express middleware
+│   │           ├── verify-token.ts
+│   │           └── require-admin.ts
+│   └── worker/                # BullMQ worker service (Level 3)
+│       ├── package.json
+│       └── src/
+│           ├── index.ts       # Worker entry point
+│           └── processors/    # Job processors
+│               └── bookingProcessor.ts
+├── packages/                  # 📦 Shared libraries
+│   ├── database/              # PostgreSQL client & schema
+│   │   ├── package.json
+│   │   └── src/
+│   │       ├── index.ts       # Main exports
+│   │       ├── db.ts          # postgres.js connection
+│   │       └── schema.ts      # Database initialization
+│   ├── types/                 # Shared TypeScript types
+│   │   ├── package.json
+│   │   └── src/
+│   │       ├── index.ts       # Type exports
+│   │       ├── auth.ts
+│   │       ├── event.ts
+│   │       └── booking.ts
+│   └── lib/                   # Shared utilities
+│       ├── package.json
+│       └── src/
+│           ├── index.ts       # Main exports
+│           ├── errors.ts      # Error codes & AppError
+│           ├── errorHandler.ts
+│           ├── auth.ts        # JWT utilities
+│           └── env.ts         # Environment validation
+├── docs/                      # Documentation
+│   ├── SPECS.md              # Main specification (MOST IMPORTANT)
+│   └── level3/
+│       ├── LEVEL_3_COMPLETE_PLAN.md    # Full Level 3 plan
+│       └── milestone-0-implementation-plan.md  # Milestone 0 plan
+├── tests/                     # Test suites
+│   └── load-test.ts          # 1000 concurrent request load test
+├── secrets/                   # Docker secrets (mounted at runtime)
 │   ├── db_password.txt
 │   └── jwt_secret.txt
-├── docker-compose.yml          # PostgreSQL + API services
-├── Dockerfile                  # Multi-stage build (dev/prod)
-├── package.json                # Node.js dependencies & scripts
-└── LEVEL_3_PLAN.md            # 🆕 Level 3 implementation plan (IN PROGRESS)
+├── docker-compose.yml        # PostgreSQL + API + Redis services
+├── Dockerfile                # Multi-stage monorepo build
+├── package.json              # Root dependencies & workspace config
+├── turbo.json                # Build orchestration
+└── tsconfig.json             # TypeScript configuration with path mapping
 ```
 
 ---
 
 ## Specification & Implementation Status
 
-This project is implementing the **official specification** at **`specs/SPECS.md`**. This specification defines four progressive levels of implementation:
+This project is implementing the **official specification** at **`docs/SPECS.md`**. This specification defines four progressive levels of implementation:
 
 - **Level 1 (Junior)**: Basic CRUD operations - ✅ **IMPLEMENTED**
 - **Level 2 (Mid-Level)**: Database transactions with pessimistic locking - ✅ **IMPLEMENTED**  
 - **Level 3 (Senior)**: Queue-based async processing with BullMQ & Redis - 🔄 **IN PROGRESS**
-  - Implementation plan: `LEVEL_3_PLAN.md`
-  - Specification: `specs/SPECS.md` (Level 3 section)
+  - Implementation plan: `docs/level3/LEVEL_3_COMPLETE_PLAN.md`
+  - Specification: `docs/SPECS.md` (Level 3 section)
 - **Level 4 (Principal)**: Idempotency & distributed locking for resilience - 📋 **PLANNED**
 
-**IMPORTANT**: Always refer to `specs/SPECS.md` first when working on this project. It contains the canonical requirements and architecture decisions for each level.
+**IMPORTANT**: Always refer to `docs/SPECS.md` first when working on this project. It contains the canonical requirements and architecture decisions for each level.
 
 ---
 
@@ -216,7 +245,7 @@ docker compose down -v
 
 ### Database Management
 
-The app automatically initializes schema on startup (see `initializeDatabase()` in `src/lib/db.ts`):
+The app automatically initializes schema on startup (see `initializeDatabase()` in `packages/database/src/index.ts`):
 
 ```bash
 # Manual schema reset (development only)
@@ -242,7 +271,7 @@ docker compose up -d
 - No CommonJS (`require()`, `module.exports`)
 
 **2. Service Layer Pattern**
-All business logic in `src/services/` with error classification:
+All business logic in `apps/api/src/services/` (API-specific) or `apps/worker/src/processors/` (worker-specific) with error classification:
 
 ```typescript
 // ✅ Good: Service handles business logic, route handles HTTP
@@ -269,7 +298,8 @@ handleError(error, res, "createBooking");
 
 **4. Type Safety**
 - Use Zod for runtime validation (request payloads, params)
-- Define TypeScript interfaces in `src/types/index.ts`
+- Define TypeScript interfaces in `packages/types/src/`
+- Import types from shared packages: `import type { Event } from '@ticket-hive/types'`
 - Never use `any` or `as` assertions without justification
 
 **5. Database Transactions**
@@ -481,7 +511,7 @@ Example flow:
 
 ### Authentication & Authorization
 
-**JWT Implementation** (`src/lib/auth.ts`):
+**JWT Implementation** (`packages/lib/src/auth.ts`):
 - Bearer token in `Authorization` header
 - Secret stored in Docker secret: `/run/secrets/jwt_secret`
 - Default expiration: 24 hours (configurable via `JWT_EXPIRATION`)
@@ -543,12 +573,13 @@ const events = await sql(`SELECT * FROM events WHERE id = '${userInput}'`);
 
 ### Docker Compose Architecture
 
+**Current (Level 2) - Single Service:**
 ```yaml
 services:
   server:
     build:
       context: .
-      target: dev  # dev/prod stages
+      target: development  # Uses native TypeScript support (Node.js 24+)
     ports:
       - "3000:3000"  # API
       - "9229:9229"  # Debugger
@@ -556,17 +587,63 @@ services:
       - db-password    # Mounted at /run/secrets/db_password
       - jwt-secret     # Mounted at /run/secrets/jwt_secret
     volumes:
-      - ./src:/usr/src/app/src  # Hot reload for development
+      - ./apps/api/src:/usr/src/app/apps/api/src    # Monorepo structure
+      - ./packages:/usr/src/app/packages          # Shared code
+    depends_on:
+      db:
+        condition: service_healthy
   
   db:
     image: postgres:16
     volumes:
       - db-data:/var/lib/postgresql/data  # Persistent storage
     healthcheck:
-      test: ["CMD", "pg_isready"]  # Wait for DB ready
+      test: ["CMD", "pg_isready"]
       interval: 10s
       timeout: 5s
       retries: 5
+```
+
+**Level 3 (In Progress) - Full Queue Architecture:**
+```yaml
+# Extended configuration adding Redis + Worker services
+services:
+  server:  # API service (unchanged from above)
+    # ... same as above
+  
+  worker:  # NEW: BullMQ worker service
+    build:
+      context: .
+      target: development
+    command: node --experimental-transform-types apps/worker/src/index.ts
+    depends_on:
+      - db
+      - redis
+    environment:  # Same as API but no ports exposed
+      # ... environment variables
+    volumes:  # Same volume mounts as API
+      - ./apps/worker/src:/usr/src/app/apps/worker/src
+      - ./packages:/usr/src/app/packages
+    secrets:
+      - db-password
+      - jwt-secret
+    # No ports - worker is internal only
+  
+  redis:  # NEW: Redis for BullMQ queue + dashboard
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"  # Redis default
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+  
+  db:  # PostgreSQL (unchanged)
+    # ... same as above
+
+volumes:
+  db-data:
+  redis-data:  # NEW for Redis
 ```
 
 **Docker Secrets**:
@@ -577,20 +654,49 @@ services:
 
 ### Multi-Stage Build
 
-**Development Stage**:
-- Installs dev dependencies
-- Runs with `node --watch` for hot reload
-- Mounts source code as volume
+**Development Stage** (Node.js 24+ with native TypeScript):
+- Installs all dependencies (including dev)
+- Runs TypeScript source files directly (no compilation)
+- Uses `--experimental-transform-types` for enum support
+- Mounts monorepo packages for hot reloading across all apps
+- No tsx, ts-node, or transpilation overhead
 
 **Production Stage**:
 - Installs only production dependencies
-- Runs compiled code directly
-- No volume mounts
+- Runs TypeScript source files directly (no dist/ folder)
+- Smaller image size (no build artifacts)
+- Single source of truth (same .ts files in dev/prod)
+
+**Multi-Stage Docker Build:**
+```dockerfile
+# Build stage - Type checking
+FROM node:24-alpine AS builder
+WORKDIR /app
+COPY package*.json tsconfig.json turbo.json ./
+COPY apps/*/package.json ./apps/*/
+COPY packages/*/package.json ./packages/*/
+RUN npm ci
+COPY . .
+RUN npm run build  # Type check only (tsc --noEmit)
+
+# Production stage - Runs TypeScript natively
+FROM node:24-alpine AS production
+WORKDIR /usr/src/app
+COPY --from=builder /app .
+CMD ["node", "--experimental-transform-types", "apps/api/src/index.ts"]
+```
 
 Build production:
 ```bash
-docker build --target prod -t tickethive:prod .
+docker build --target production -t tickethive:prod .
 ```
+
+**Why Native TypeScript?**
+- Faster startup (no transpilation)
+- Simpler debugging (debug .ts files directly)
+- Smaller Docker images
+- Less tooling (remove tsx, ts-node, tsconfig-paths)
+- Consistent behavior between dev and prod
 
 ### Environment Variables
 
@@ -640,7 +746,7 @@ echo "jwtsecretkey" > secrets/jwt_secret.txt
 
 **❌ "Connection terminated unexpectedly"**
 - Cause: Connection pool exhaustion
-- Solution: Increase `max` connections in `src/lib/db.ts` or scale horizontally
+- Solution: Increase `max` connections in `packages/database/src/db.ts` or scale horizontally
 
 **❌ Too many timeout errors (>20%)**
 - Symptom: `STATEMENT_TIMEOUT` errors flooding logs
@@ -656,7 +762,7 @@ echo "jwtsecretkey" > secrets/jwt_secret.txt
 
 ## Future Enhancements (Level 3)
 
-Level 3 implementation details are defined in the specification `specs/SPECS.md`.
+Level 3 implementation details are defined in the specification `docs/SPECS.md` and detailed in the implementation plan `docs/level3/LEVEL_3_COMPLETE_PLAN.md`.
 
 ### Key Changes from Level 2 → Level 3
 
@@ -693,7 +799,7 @@ Client → API → Queue job → Response (202 Accepted) → Client
 - Simpler implementation than WebSockets
 - Built-in browser support and auto-reconnection
 
-For complete Level 3 requirements and implementation details, see `specs/SPECS.md`.
+For complete Level 3 requirements and implementation details, see `docs/SPECS.md` and `docs/level3/LEVEL_3_COMPLETE_PLAN.md`.
 
 ---
 
@@ -702,7 +808,7 @@ For complete Level 3 requirements and implementation details, see `specs/SPECS.m
 ### When Working on This Project
 
 **1. Read the Specification First**
-- Always start with `specs/SPECS.md` - it's the canonical source of requirements
+- Always start with `docs/SPECS.md` - it's the canonical source of requirements
 - The specification defines four levels (1-4) with clear acceptance criteria
 - Current implementation: Levels 1 & 2 complete, Level 3 is next
 
@@ -712,7 +818,7 @@ For complete Level 3 requirements and implementation details, see `specs/SPECS.m
 - Never split operations across multiple transactions for same booking
 
 **3. Error Code Consistency**
-- Use `ErrorCode` constants from `src/lib/errors.ts` (never magic strings)
+- Use `ErrorCode` constants from `packages/lib/src/errors.ts` (never magic strings)
 - Map to correct HTTP status codes via `ERROR_METADATA`
 - Distinguish business logic errors (4xx) from infrastructure errors (5xx)
 
@@ -732,7 +838,7 @@ For complete Level 3 requirements and implementation details, see `specs/SPECS.m
 - Reference the race condition the code prevents
 
 **7. Database First**
-- Schema changes require updating `initializeDatabase()` in `src/lib/db.ts`
+- Schema changes require updating `initializeDatabase()` in `packages/database/src/schema.ts`
 - Test schema initialization: `docker compose down -v && docker compose up -d`
 - Indexes on foreign keys for performance (user_id, event_id)
 
@@ -744,7 +850,7 @@ For complete Level 3 requirements and implementation details, see `specs/SPECS.m
 
 ### Common Pitfalls to Avoid
 
-- ❌ Not reading `specs/SPECS.md` before making changes
+- ❌ Not reading `docs/SPECS.md` before making changes
 - ❌ Removing `FOR UPDATE` from SELECT queries (reintroduces race conditions)
 - ❌ Increasing `statement_timeout` beyond 5s (hides performance problems)
 - ❌ Adding new endpoints without Zod validation
@@ -757,19 +863,19 @@ For complete Level 3 requirements and implementation details, see `specs/SPECS.m
 
 ## Getting Help
 
-**Specification Source**: Always start with **`specs/SPECS.md`** - it defines all levels and requirements.
+**Specification Source**: Always start with **`docs/SPECS.md`** - it defines all levels and requirements.
 
 **File References**:
 - Architecture details: `README.md` (730 lines of comprehensive docs)
-- Level 3 implementation: `LEVEL_3_PLAN.md` (🆕 NEW - actively planned)
-- Specification: `specs/SPECS.md` (defines all levels 1-4)
+- Level 3 implementation: `docs/level3/LEVEL_3_COMPLETE_PLAN.md` (🆕 NEW - actively planned)
+- Specification: `docs/SPECS.md` (defines all levels 1-4)
 - Load test results: `tests/load-test.ts` (run for current performance)
 
-**Database queries**: Check `src/lib/db.ts` for complete schema and initialization logic.
+**Database queries**: Check `packages/database/src/schema.ts` for schema and `packages/database/src/db.ts` for connection logic.
 
-**Error handling flow**: See `src/lib/errors.ts` for all error codes and `src/lib/errorHandler.ts` for HTTP formatting.
+**Error handling flow**: See `packages/lib/src/errors.ts` for all error codes and `packages/lib/src/errorHandler.ts` for HTTP formatting.
 
-**Booking logic**: Core implementation in `src/services/bookingService.ts` with extensive comments explaining transaction flow.
+**Booking logic**: Core implementation in `apps/api/src/services/bookingService.ts` with extensive comments explaining transaction flow.
 
 ---
 

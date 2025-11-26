@@ -12,12 +12,15 @@ Build a system that can handle the "Taylor Swift ticket release" scenario:
 
 ## 🛠️ Tech Stack
 
-- **Runtime**: Node.js with TypeScript
+- **Runtime**: Node.js 24+ with native TypeScript support
 - **Framework**: Express.js
 - **Database**: PostgreSQL (ACID compliance is critical)
 - **Library**: postgres.js (lightweight, modern)
 - **Authentication**: JWT
+- **Build System**: Turborepo (monorepo orchestration)
+- **Type Checker**: TypeScript (tsc --noEmit - no transpilation)
 - **Containerization**: Docker & Docker Compose
+- **Development**: Native TypeScript with `--experimental-transform-types`
 
 ---
 
@@ -68,10 +71,11 @@ Timeout Rate: ~1-2% (acceptable)
 ### Prerequisites
 
 - Docker and Docker Compose installed
-- Node.js 18+ (for development)
+- Node.js 24+ (for native TypeScript support)
 - Git
+- npm 10+ (for workspace support)
 
-### Quick Start
+### Quick Start (Monorepo with Turborepo)
 
 1. **Clone the repository**:
    ```bash
@@ -79,19 +83,30 @@ Timeout Rate: ~1-2% (acceptable)
    cd tickets-hive
    ```
 
-2. **Install dependencies**:
+2. **Install dependencies for all workspaces**:
    ```bash
-   npm install
+   npm install  # Installs for root, apps/api, apps/worker, and all packages
    ```
 
-3. **Start the services**:
+3. **Type-check all packages**:
+   ```bash
+   npm run build  # Runs tsc --noEmit across all packages
+   ```
+
+4. **Start the services**:
    ```bash
    docker compose up -d
+   # Starts: PostgreSQL, API service (worker not implemented yet)
    ```
 
-4. **Run the load test**:
+5. **Run the load test**:
    ```bash
-   npm run load-test
+   npm run test:load  # Confirms Level 2 functionality still works
+   ```
+
+6. **Start development mode** (optional):
+   ```bash
+   npm run dev  # Hot reload for all services in parallel
    ```
 
 ### Environment Variables
@@ -170,7 +185,7 @@ Result: 1 booking, 0 tickets  ✅ CORRECT
 
 ### Configuration
 
-#### Database Connection Pool (`src/lib/db.ts`)
+#### Database Connection Pool (`packages/database/src/db.ts`)
 
 ```typescript
 const sql = postgres({
@@ -305,7 +320,7 @@ routine: 'ProcessInterrupts'
 **❌ Technical**:
 ```
 Error: No rows returned from query: SELECT * FROM events WHERE id = '123e4567-e89b...'
-    at EventService.getEventById (src/services/eventService.ts:45:11)
+    at EventService.getEventById (apps/api/src/services/eventService.ts:45:11)
 ```
 
 **✅ User-Friendly**:
@@ -333,22 +348,22 @@ Error: No rows returned from query: SELECT * FROM events WHERE id = '123e4567-e8
 
 Our architecture separates concerns across three layers:
 
-#### 1. Database Layer (PostgreSQL)
+#### 1. Database Layer (`packages/database/src/`, PostgreSQL)
 - Throws low-level errors (code `57014`, `23505`, etc.)
 - Technical messages for developers
 - Example: `"canceling statement due to statement timeout"`
 
-#### 2. Service Layer (`src/services/`)
+#### 2. Service Layer (`apps/api/src/services/`)
 - Catches database errors
 - Converts to `AppError` with business-friendly codes
 - Example: PostgreSQL `57014` → let it propagate for route to handle
-- See: `src/services/bookingService.ts`
+- See: `apps/api/src/services/bookingService.ts`
 
-#### 3. Route Layer (`src/routes/`)
+#### 3. Route Layer (`apps/api/src/routes/`)
 - Catches `AppError` and database errors
 - Formats as HTTP responses with user-friendly messages
 - Maps to appropriate status codes (404, 409, 503, etc.)
-- See: `src/routes/bookings.ts`
+- See: `apps/api/src/routes/bookings.ts`
 
 **Example Flow**:
 ```
@@ -524,7 +539,7 @@ A: 1-2% timeout rate is acceptable:
 **Symptom**: >20% of requests return 503 timeout errors
 
 **Solutions**:
-1. Increase `statement_timeout` in `src/lib/db.ts`:
+1. Increase `statement_timeout` in `packages/database/src/db.ts`:
    ```typescript
    statement_timeout: 10000  // 10 seconds instead of 5
    ```
@@ -539,7 +554,7 @@ A: 1-2% timeout rate is acceptable:
 **Symptom**: Errors like "Connection terminated unexpectedly"
 
 **Solutions**:
-1. Increase `max` connections in `src/lib/db.ts`
+1. Increase `max` connections in `packages/database/src/db.ts`
 2. Check PostgreSQL `max_connections` setting (default: 100)
 3. Look for connection leaks (transactions not completing)
 
@@ -568,34 +583,83 @@ A: 1-2% timeout rate is acceptable:
 
 ## 🏗️ Architecture
 
-### Project Structure
+### Project Structure (Monorepo with Turborepo)
 
 ```
 tickets-hive/
-├── src/
-│   ├── index.ts              # Express app setup
-│   ├── lib/
-│   │   ├── db.ts             # PostgreSQL connection config
-│   │   ├── env.ts            # Environment variables
-│   │   └── errors.ts         # Error handling system
-│   ├── middleware/
-│   │   └── verify-token.ts   # JWT authentication
-│   ├── routes/
-│   │   ├── auth.ts           # Login/register
-│   │   ├── bookings.ts       # Booking endpoints
-│   │   └── events.ts         # Event endpoints
-│   ├── services/
-│   │   ├── authService.ts    # Auth business logic
-│   │   ├── bookingService.ts # Booking transactions
-│   │   └── eventService.ts   # Event management
-│   └── types/
-│       └── index.ts          # TypeScript types
-├── tests/
-│   └── load-test.ts          # Concurrency test
-├── docker-compose.yml        # Services orchestration
-├── Dockerfile                # API container
+├── apps/                       # 🚀 Deployable applications
+│   ├── api/                   # Express API service
+│   │   ├── package.json       # API-specific dependencies
+│   │   └── src/               # API source code
+│   │       ├── index.ts       # Express app entry point
+│   │       ├── routes/        # HTTP route handlers
+│   │       │   ├── auth.ts           # Login/register endpoints
+│   │       │   ├── bookings.ts       # Booking endpoints
+│   │       │   └── events.ts         # Event endpoints
+│   │       ├── services/      # Business logic (API-specific)
+│   │       │   ├── authService.ts    # Authentication logic
+│   │       │   ├── bookingService.ts # Booking transactions
+│   │       │   └── eventService.ts   # Event management
+│   │       └── middleware/    # Express middleware
+│   │           └── verify-token.ts   # JWT middleware
+│   └── worker/                # Worker service (Level 3)
+│       ├── package.json       # Worker-specific dependencies
+│       └── src/               # Worker source (currently empty)
+├── packages/                  # 📦 Shared libraries
+│   ├── database/              # PostgreSQL client & schema
+│   │   ├── package.json
+│   │   └── src/
+│   │       ├── index.ts       # Main exports
+│   │       ├── db.ts          # postgres.js connection
+│   │       └── schema.ts      # Database initialization
+│   ├── types/                 # Shared TypeScript types
+│   │   ├── package.json
+│   │   └── src/
+│   │       ├── index.ts
+│   │       ├── auth.ts        # Auth-related types
+│   │       ├── event.ts       # Event-related types
+│   │       └── booking.ts     # Booking-related types
+│   └── lib/                   # Shared utilities
+│       ├── package.json
+│       └── src/
+│           ├── index.ts       # Main exports
+│           ├── errors.ts      # Error codes & AppError class
+│           ├── errorHandler.ts # HTTP error formatting
+│           ├── auth.ts        # JWT utilities
+│           └── env.ts         # Environment validation
+├── docs/                      # Documentation
+│   ├── SPECS.md              # Project specification
+│   └── level3/               # Level 3 implementation plans
+│       └── LEVEL_3_COMPLETE_PLAN.md
+├── tests/                     # Test suites
+│   └── load-test.ts          # 1000 concurrent request test
+├── secrets/                   # Docker secrets (mounted at runtime)
+│   ├── db_password.txt
+│   └── jwt_secret.txt
+├── docker-compose.yml        # Service orchestration
+├── Dockerfile                # Multi-stage monorepo build
+├── package.json              # Root dependencies & workspace config
+├── turbo.json                # Build orchestration
+├── tsconfig.json             # TypeScript config with path mapping
 └── README.md                 # This file
 ```
+
+### Build System
+
+**Turbo Pipeline** (`turbo.json`):
+```bash
+npm run dev      # Starts all apps in parallel with hot reload
+npm run build    # Type-checks all packages (tsc --noEmit)
+npm run lint     # Lints all packages
+npm run test:load  # Runs load test (from root)
+```
+
+**Why Native TypeScript?**
+- ✅ Node.js 24+ runs `.ts` files directly (no transpilation)
+- ✅ Faster startup (no build step)
+- ✅ Simpler debugging (debug source directly)
+- ✅ Smaller Docker images (no dist/ folder)
+- ✅ Uses `--experimental-transform-types` for enum support
 
 ### Database Schema
 
@@ -697,28 +761,59 @@ By studying this Level 2 implementation, you'll understand:
 
 ---
 
-## 🚀 Next Steps: Level 3 Preview
+## 🚀 Next Steps: Level 3 Implementation (IN PROGRESS)
 
-When Level 2's timeout rate becomes unacceptable (>20%), it's time for Level 3:
+**Status**: Currently implementing Level 3 - Queue-Based Async Processing with BullMQ & Redis
 
-### Level 3: Queue-Based Async Processing
+### What's Been Done (Milestone 0)
 
-**Changes**:
-- Add **BullMQ** job queue with Redis
-- API returns `202 Accepted` immediately
-- Background workers process bookings asynchronously
-- WebSocket/polling for status updates
+✅ **Monorepo Restructure** - Organized codebase into monorepo with Turborepo:
+- `apps/api/` - Express API service (moved from `src/`)
+- `apps/worker/` - Worker service (empty, for Level 3)
+- `packages/database/` - Shared database client
+- `packages/types/` - Shared TypeScript types
+- `packages/lib/` - Shared utilities (errors, auth, env)
+- Native TypeScript with Node.js 24 (no transpilation)
+
+### Level 3 Architecture (9 Milestones Planned)
+
+**Overview**: Transform from synchronous processing to async queue-based architecture
+
+**Milestones** (see `docs/level3/LEVEL_3_COMPLETE_PLAN.md` for full details):
+1. ✅ **Milestone 0** - Monorepo foundation
+2. 🔄 **Milestone 1** - Redis & BullMQ infrastructure
+3. 🔄 **Milestone 2** - Event versioning for optimistic locking
+4. 🔄 **Milestone 3** - Job queue architecture with Zod validation
+5. 🔄 **Milestone 4** - Worker service & processor implementation
+6. 🔄 **Milestone 5** - API migration to async pattern (202 Accepted)
+7. 🔄 **Milestone 6** - Server-Sent Events for status updates
+8. 🔄 **Milestone 7** - Robust SSE (fast worker race condition fix)
+9. 🔄 **Milestone 8** - Optimistic locking implementation
+
+**Key Changes**:
+- Add **BullMQ** job queue with **Redis** backend
+- API returns `202 Accepted` with job ID immediately (<100ms)
+- Background **workers** process bookings asynchronously
+- **QueueEvents** for real-time status updates via Server-Sent Events
+- **Optimistic locking** (versioning) replaces `FOR UPDATE`
+- **Zero timeout errors** - requests don't wait for processing
+- Handles **10,000+ concurrent requests**
+- Horizontal scaling with multiple worker instances
 
 **Benefits**:
-- Handle 10,000+ concurrent requests
-- No timeout errors (requests don't wait for processing)
-- Horizontal scaling with multiple workers
+- Sub-100ms API response times
+- Zero timeout errors
 - Better user experience (immediate feedback)
+- Linear scalability
+- Horizontal scaling with multiple workers
 
 **Trade-offs**:
-- More complex architecture
-- Eventually consistent (not immediate)
-- Requires additional infrastructure (Redis, workers)
+- More complex architecture (queue + worker + events)
+- Eventually consistent (not immediate confirmation)
+- Additional infrastructure (Redis, separate worker service)
+- Requires job state management
+
+For detailed implementation plan with 9 milestones, see: **`docs/level3/LEVEL_3_COMPLETE_PLAN.md`**
 
 ---
 
