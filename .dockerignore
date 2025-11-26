@@ -7,6 +7,9 @@
 **/.classpath
 **/.dockerignore
 **/.env
+**/.env.test
+**/.env.docker
+**/.env.local
 **/.git
 **/.gitignore
 **/.project

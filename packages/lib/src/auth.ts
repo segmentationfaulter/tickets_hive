@@ -1,11 +1,10 @@
 import jwt from "jsonwebtoken";
 import bcrypt from "bcryptjs";
-import { env } from "./env.ts";
-import fs from "node:fs";
+import { getJwtSecret, env } from "./env.ts";
 import { type DecodedToken } from "@ticket-hive/types";
 import { AppError, ErrorCode } from "./errors.ts";
 
-const JWT_SECRET = fs.readFileSync(env.JWT_SECRET_FILE, "utf8").trim();
+const JWT_SECRET = getJwtSecret();
 const JWT_EXPIRATION: string = env.JWT_EXPIRATION || "24h";
 
 export async function hashPassword(password: string): Promise<string> {

@@ -68,59 +68,74 @@ Timeout Rate: ~1-2% (acceptable)
 
 ## 🚀 Getting Started
 
-### Prerequisites
+### Quick Start
 
-- Docker and Docker Compose installed
-- Node.js 24+ (for native TypeScript support)
-- Git
-- npm 10+ (for workspace support)
-
-### Quick Start (Monorepo with Turborepo)
-
-1. **Clone the repository**:
+1. **Clone & Install**:
    ```bash
    git clone <repository-url>
    cd tickets-hive
+   npm install
    ```
 
-2. **Install dependencies for all workspaces**:
+2. **Setup Environment** (automatically creates secrets):
    ```bash
-   npm install  # Installs for root, apps/api, apps/worker, and all packages
+   npm run setup  # Creates secrets/ directory with safe defaults
    ```
 
-3. **Type-check all packages**:
+3. **Choose Development Mode**:
+
+   **Option A: Docker Development (Recommended)**
    ```bash
-   npm run build  # Runs tsc --noEmit across all packages
+   npm run docker:dev  # Uses Docker secrets + PostgreSQL in container
    ```
 
-4. **Start the services**:
+   **Option B: Local Development**
    ```bash
-   docker compose up -d
-   # Starts: PostgreSQL, API service (worker not implemented yet)
+   npm run dev  # Uses .env.local with direct values
    ```
 
-5. **Run the load test**:
+4. **Verify Setup**:
    ```bash
-   npm run test:load  # Confirms Level 2 functionality still works
+   npm run test:load  # Runs 1000 concurrent requests to test Level 2
    ```
 
-6. **Start development mode** (optional):
-   ```bash
-   npm run dev  # Hot reload for all services in parallel
-   ```
+✨ **Environment Files**: The project uses `.env.example` as a template. Environment-specific files (`.env.local`, `.env.docker`, `.env.test`) are automatically ignored by Git and Docker for security.
 
-### Environment Variables
+### Additional Docker Commands
 
-The project uses Docker secrets for sensitive data. Configuration is in `docker-compose.yml`:
-
-```yaml
-POSTGRES_HOST: db
-POSTGRES_PORT: 5432
-POSTGRES_DB: tickethive
-POSTGRES_USER: tickethive_user
-POSTGRES_PASSWORD_FILE: /run/secrets/db_password
-JWT_SECRET_FILE: /run/secrets/jwt_secret
+```bash
+npm run docker:logs    # View logs from all services
+npm run docker:stop    # Stop all services
+npm run docker:clean   # Stop and remove volumes (reset database)
 ```
+
+### Environment Management
+
+This project supports **two development modes** with zero additional dependencies:
+
+**1. Docker Mode (Production-like)**
+- Uses Docker secrets mounted at `/run/secrets/`
+- Auto-generated secure passwords with `npm run setup`
+- Best for testing production configurations
+
+**2. Local Mode (Fast development)**
+- Uses Node.js 20+ native `.env` file support (`--env-file` flag)
+- Direct environment variables in `.env.local`
+- Best for rapid iteration without Docker
+
+Both modes use the same validation via `@t3-oss/env-core` and work seamlessly.
+
+**Environment File Strategy**:
+- `.env.example` - Template with documentation (committed to Git)
+- `.env.local` - Local development (ignored by Git and Docker)
+- `.env.docker` - Docker development (ignored by Git and Docker)  
+- `.env.test` - Test environment (ignored by Git and Docker)
+- `secrets/` - Secure secrets directory (ignored by Git)
+
+**Security Note**: The `npm run setup` command generates cryptographically secure secrets:
+- Database password: 32 bytes random
+- JWT secret: 64 bytes random
+- Files created with `600` permissions (owner read/write only)
 
 ---
 

@@ -11,12 +11,15 @@
     "packages/*"
   ],
   "scripts": {
-    "dev": "turbo run dev --parallel",
+    "setup": "node --experimental-transform-types scripts/setup-env.ts",
     "build": "turbo run build",
-    "api:dev": "node --watch --experimental-transform-types apps/api/src/index.ts",
-    "test:load": "node --experimental-transform-types tests/load-test.ts",
+    "dev": "turbo run dev --filter=@ticket-hive/api",
+    "test:load": "node --experimental-transform-types --env-file=.env.test tests/load-test.ts",
     "docker:build": "docker build --target production -t tickethive:prod .",
-    "docker:dev": "docker compose up -d"
+    "docker:dev": "npm run setup && docker compose up -d",
+    "docker:stop": "docker compose down",
+    "docker:logs": "docker compose logs -f",
+    "docker:clean": "docker compose down -v && rm -rf db-data/"
   },
   "dependencies": {
     "@t3-oss/env-core": "^0.13.8",

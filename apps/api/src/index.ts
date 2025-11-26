@@ -13,7 +13,6 @@ app.use(express.json());
 // Initialize database
 try {
   await initializeDatabase();
-  console.log("✅ Database connection established");
 } catch (error) {
   const errorMessage = error instanceof Error ? error.message : String(error);
   console.error("❌ Failed to initialize database:", errorMessage);

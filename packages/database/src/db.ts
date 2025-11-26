@@ -1,25 +1,7 @@
-import fs from "node:fs";
 import postgres from "postgres";
-import { env } from "@ticket-hive/lib";
+import { getPostgresPassword, env } from "@ticket-hive/lib";
 
-let password: string;
-try {
-  password = fs.readFileSync(env.POSTGRES_PASSWORD_FILE, "utf8").trim();
-} catch (error) {
-  const errorMessage = error instanceof Error ? error.message : String(error);
-  console.error("❌ Failed to read PostgreSQL password file:");
-  console.error(`   File path: ${env.POSTGRES_PASSWORD_FILE}`);
-  console.error(`   Error: ${errorMessage}`);
-  console.error(
-    "💡 Please ensure the password file exists and contains a valid password",
-  );
-  process.exit(1);
-}
-
-if (!password) {
-  console.error("💡 Please ensure the password file is not empty");
-  process.exit(1);
-}
+const password = getPostgresPassword();
 
 /**
  * PostgreSQL Connection Configuration for TicketHive

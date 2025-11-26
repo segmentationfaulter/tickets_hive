@@ -172,7 +172,9 @@ CREATE TABLE IF NOT EXISTS bookings (
 
 ### Database Connection Configuration (Critical)
 
-Located in `src/lib/db.ts` - **Never change without understanding impact**:
+Located in `packages/database/src/db.ts` - **Never change without understanding impact**:
+
+The dual-mode environment system automatically handles secrets for you. However, if you need to manually manage secrets for any reason:
 
 ```typescript
 const sql = postgres({
@@ -195,68 +197,163 @@ const sql = postgres({
 
 ## Build & Development Commands
 
-### Local Development
+### Quick Start (New! - Zero Manual Configuration)
+
+**TicketHive now supports automated setup with dual-mode environment management.**
 
 ```bash
-# Install dependencies
-npm install
+1. Clone & Install
+   git clone <repository-url>
+   cd tickets-hive
+   npm install
 
-# Start PostgreSQL + API in Docker
-docker compose up -d
+2. Setup Environment (automatically creates secrets)
+   npm run setup  # Creates secrets/ with secure random values
 
-# Development mode (file watching)
+3. Choose Development Mode
+
+   Option A: Docker Development (Recommended - Production-like)
+   npm run docker:dev  # Uses Docker secrets + containerized PostgreSQL
+
+   Option B: Local Development (Fast - No Docker needed)
+   npm run dev  # Uses .env.local with direct values
+
+4. Verify Setup
+   npm run test:load  # Runs 1000 concurrent requests
+
+✨ That's it! No manual secret creation required.
+```
+
+### Available Scripts
+
+**Environment Management:**
+```bash
+npm run setup          # Auto-generate secure secrets in secrets/
+npm run docker:dev     # Setup + start Docker services
+npm run docker:stop    # Stop all services
+npm run docker:logs    # View logs from all services
+npm run docker:clean   # Stop + remove volumes (reset database)
+npm run dev            # Local development (no Docker)
+```
+
+**Development & Testing:**
+```bash
+npm run build          # Type-check all packages with TypeScript
+npm run api:dev        # Start API server only (file watching)
+npm run test:load      # Run load test (requires services running)
+```
+
+**Docker Operations:**
+```bash
+# Legacy commands still work
+docker compose up -d   # Start all services (if you already have secrets)
+docker compose logs -f # View logs
+docker compose down    # Stop services
+docker compose down -v # Stop and remove volumes
+```
+
+---
+
+## Environment Configuration
+
+### Dual-Mode Architecture
+
+The project now supports **two development modes** with the same code base:
+
+#### **1. Docker Mode (Production-Ready)**
+- Uses Docker Compose orchestration
+- Secrets stored in `/run/secrets/` (mounted at runtime)
+- PostgreSQL runs in container
+- Environment: `.env.docker`
+- **Best for**: Testing production-like configurations, team collaboration
+
+```bash
+npm run setup    # Creates secrets/db_password.txt, secrets/jwt_secret.txt
+npm run docker:dev
+```
+
+#### **2. Local Mode (Development)**
+- Uses Node.js 20+ native `--env-file` support (no dependencies!)
+- Direct environment variables in `.env.local`
+- Connects to local PostgreSQL
+- **Best for**: Rapid iteration, debugging, IDE integration
+
+```bash
+# Ensure PostgreSQL is running locally first
 npm run dev
-# Runs: node --watch src/index.ts
-
-# Debug mode with inspector
-npm run debug
-# Runs: node --inspect=0.0.0.0:9229 src/index.ts
-# Connect Chrome DevTools to localhost:9229
-
-# Run load test (ensure services are running first)
-npm run test:load
-# Runs: node tests/load-test.ts
-# Creates event with 100 tickets, fires 1000 concurrent requests
 ```
 
-### Docker Operations
+### Security Considerations
 
+**Automatic Secret Generation:**
 ```bash
-# View logs
-docker compose logs -f
-docker compose logs -f db    # Database logs only
-docker compose logs -f server # API logs only
+npm run setup
+```
+Creates cryptographically secure secrets:
+- Database password: 32 bytes (64 hex chars)
+- JWT secret: 64 bytes (128 hex chars)
+- File permissions: `600` (owner read/write only)
+- **Never committed** - secrets/ is in .gitignore
 
-# Check database status
-docker compose exec db pg_isready
+**Environment Validation:**
+All environments validated by `@t3-oss/env-core`:
+- Required variables enforced at startup
+- Clear error messages on missing configuration
+- Type-safe environment access
 
-# Connect to database directly
-docker compose exec db psql -U tickethive_user -d tickethive
+### Configuration Files
 
-# Restart services
-docker compose restart
+**Environment Files:**
+- `.env.docker` - Docker Compose configuration
+- `.env.local` - Local development (direct values)
+- `.env.test` - Test environment (matches generated secrets)
 
-# Stop everything
-docker compose down
+**Secret Files (auto-generated):**
+- `secrets/db_password.txt` - PostgreSQL password
+- `secrets/jwt_secret.txt` - JWT signing key
 
-# Destroy volumes (reset database)
-docker compose down -v
+### Docker Compose Architecture
+
+```yaml
+# Full stack with secrets mounting
+services:
+  server:
+    environment:
+      POSTGRES_PASSWORD_FILE: /run/secrets/db-password
+      JWT_SECRET_FILE: /run/secrets/jwt-secret
+    secrets:
+      - db-password
+      - jwt-secret
+
+  db:
+    environment:
+      POSTGRES_PASSWORD_FILE: /run/secrets/db-password
+    secrets:
+      - db-password
+
+secrets:
+  db-password:
+    file: secrets/db_password.txt
+  jwt-secret:
+    file: secrets/jwt_secret.txt
 ```
 
-### Database Management
+### Migration Notes
 
-The app automatically initializes schema on startup (see `initializeDatabase()` in `packages/database/src/index.ts`):
-
+**Legacy Setup (Still Works):**
 ```bash
-# Manual schema reset (development only)
-# 1. Stop services
-docker compose down -v
-
-# 2. Remove volume data
-rm -rf db-data/
-
-# 3. Restart
+# Manual secret creation is still supported
+mkdir secrets
+echo "db_password" > secrets/db_password.txt
+echo "jwt_secret" > secrets/jwt_secret.txt
 docker compose up -d
+```
+
+**New Setup (Recommended):**
+```bash
+# One-command automated setup
+npm run setup      # Creates secrets for you
+npm run docker:dev # Starts everything
 ```
 
 ---
