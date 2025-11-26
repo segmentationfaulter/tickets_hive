@@ -38,7 +38,9 @@ const events = await transaction`
 - ⚠️ Lower throughput (requests serialize on locked rows)
 - ⚠️ 1-2% timeout rate under extreme load (statement_timeout: 5s)
 
-**Next Level (Level 3)**: Queue-based async processing with BullMQ + Redis
+**Level 3 (In Progress)**: Queue-based async processing with BullMQ + Redis
+
+Level 3 implementation is now actively planned. See `LEVEL_3_PLAN.md` for detailed implementation strategy and requirements.
 
 ---
 
@@ -77,7 +79,7 @@ tickets-hive/
 ├── docker-compose.yml          # PostgreSQL + API services
 ├── Dockerfile                  # Multi-stage build (dev/prod)
 ├── package.json                # Node.js dependencies & scripts
-└── LEVEL_2_PLAN.md            # Detailed implementation plan
+└── LEVEL_3_PLAN.md            # 🆕 Level 3 implementation plan (IN PROGRESS)
 ```
 
 ---
@@ -88,7 +90,9 @@ This project is implementing the **official specification** at **`specs/SPECS.md
 
 - **Level 1 (Junior)**: Basic CRUD operations - ✅ **IMPLEMENTED**
 - **Level 2 (Mid-Level)**: Database transactions with pessimistic locking - ✅ **IMPLEMENTED**  
-- **Level 3 (Senior)**: Queue-based async processing with BullMQ & Redis - 🔄 **UPCOMING**
+- **Level 3 (Senior)**: Queue-based async processing with BullMQ & Redis - 🔄 **IN PROGRESS**
+  - Implementation plan: `LEVEL_3_PLAN.md`
+  - Specification: `specs/SPECS.md` (Level 3 section)
 - **Level 4 (Principal)**: Idempotency & distributed locking for resilience - 📋 **PLANNED**
 
 **IMPORTANT**: Always refer to `specs/SPECS.md` first when working on this project. It contains the canonical requirements and architecture decisions for each level.
@@ -757,7 +761,7 @@ For complete Level 3 requirements and implementation details, see `specs/SPECS.m
 
 **File References**:
 - Architecture details: `README.md` (730 lines of comprehensive docs)
-- Level 2 implementation: `LEVEL_2_PLAN.md`
+- Level 3 implementation: `LEVEL_3_PLAN.md` (🆕 NEW - actively planned)
 - Specification: `specs/SPECS.md` (defines all levels 1-4)
 - Load test results: `tests/load-test.ts` (run for current performance)
 
