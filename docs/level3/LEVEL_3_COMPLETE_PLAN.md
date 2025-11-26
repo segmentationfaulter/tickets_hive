@@ -445,7 +445,6 @@ npm run test:load
    # In root directory
    npm install bullmq ioredis
    npm install -D @types/ioredis
-   npm install zod # For shared schemas
    ```
 
 3. **Environment Configuration**
@@ -1529,7 +1528,7 @@ Each milestone must include:
 ## 📞 Help & Resources
 
 **If you get stuck:**
-1. Check `specs/SPECS.md` - canonical requirements source
+1. Check `docs/SPECS.md` - canonical requirements source
 2. Review `AGENTS.md` - project context and patterns
 3. Check milestone-specific validation steps
 4. Run tests after each milestone (don't skip verification)
