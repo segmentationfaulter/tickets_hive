@@ -9,8 +9,9 @@ function readEnvValue(filePath?: string, directValue?: string): string {
       // In Docker: read from mounted secret file
       return readFileSync(filePath, "utf8").trim();
     } catch (error) {
-      console.error(`Failed to read secret file: ${filePath}`, error);
-      throw new Error(`Missing required secret file: ${filePath}`);
+      console.error(`❌ Failed to read secret file: ${filePath}`);
+      console.error(`💡 Solution: Run 'npm run setup' to generate secrets or ensure Docker secrets are properly mounted`);
+      throw new Error(`Missing required secret file: ${filePath}. Run 'npm run setup' to generate secrets.`);
     }
   }
 
@@ -19,7 +20,12 @@ function readEnvValue(filePath?: string, directValue?: string): string {
     return directValue;
   }
 
-  throw new Error("No secret file or direct value provided");
+  console.error("❌ Missing required environment configuration");
+  console.error("💡 Solution options:");
+  console.error("   1. Run 'npm run setup' to generate secrets automatically");
+  console.error("   2. Create .env.local file with POSTGRES_PASSWORD and JWT_SECRET values");
+  console.error("   3. Run 'npm run docker:dev' to use Docker mode with auto-generated secrets");
+  throw new Error("No secret file or direct value provided. Run 'npm run setup' to generate secrets automatically.");
 }
 
 export const env = createEnv({
