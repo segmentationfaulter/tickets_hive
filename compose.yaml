@@ -7,21 +7,15 @@
 # You can add other services your application may depend on here, such as a
 # database or a cache. For examples, see the Awesome Compose repository:
 # https://github.com/docker/awesome-compose
+
 services:
   server:
     build:
       context: .
       target: development
-    environment:
-      NODE_ENV: development
-      PORT: 3000
-      POSTGRES_HOST: db
-      POSTGRES_PORT: 5432
-      POSTGRES_DB: tickets_hive
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD_FILE: /run/secrets/db-password
-      JWT_SECRET_FILE: /run/secrets/jwt-secret
-      JWT_EXPIRATION: 24H
+    # Load environment variables from .env.docker file
+    env_file:
+      - .env.docker
     ports:
       - 3000:3000
       - 9229:9229 # For debugging purpose
