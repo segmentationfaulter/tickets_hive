@@ -31,9 +31,10 @@ function createBookingService(db: Database): BookingService {
             id: string;
             name: string;
             available_tickets: number;
+            version: number;
           }>
         >`
-          SELECT id, name, available_tickets
+          SELECT id, name, available_tickets, version
           FROM events
           WHERE id = ${payload.eventId}
           FOR UPDATE
@@ -60,6 +61,7 @@ function createBookingService(db: Database): BookingService {
         await transaction`
           UPDATE events
           SET available_tickets = available_tickets - 1,
+              version = version + 1,
               updated_at = NOW()
           WHERE id = ${payload.eventId}
         `;
@@ -167,6 +169,7 @@ function createBookingService(db: Database): BookingService {
         await transaction`
           UPDATE events
           SET available_tickets = available_tickets + 1,
+              version = version + 1,
               updated_at = NOW()
           WHERE id = ${updatedBooking.event_id}
         `;

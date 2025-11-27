@@ -38,6 +38,7 @@ export async function initializeDatabase() {
         name VARCHAR(255) NOT NULL,
         total_tickets INT NOT NULL,
         available_tickets INT NOT NULL,
+        version INT DEFAULT 0 NOT NULL,
         event_date TIMESTAMP NOT NULL,
         created_at TIMESTAMP DEFAULT NOW(),
         updated_at TIMESTAMP DEFAULT NOW()

@@ -3,6 +3,7 @@ export interface Event {
   name: string;
   total_tickets: number;
   available_tickets: number;
+  version: number;
   event_date: Date;
   created_at: Date;
   updated_at: Date;

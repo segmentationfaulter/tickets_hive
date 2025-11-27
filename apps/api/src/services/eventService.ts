@@ -26,7 +26,7 @@ function createEventService(db: Database): EventService {
           ${payload.totalTickets},
           ${eventDate}
         )
-        RETURNING id, name, total_tickets, available_tickets, event_date, created_at, updated_at
+        RETURNING id, name, total_tickets, available_tickets, version, event_date, created_at, updated_at
       `;
 
       if (events.length === 0) {
@@ -53,7 +53,7 @@ function createEventService(db: Database): EventService {
 
       // Get paginated events, ordered by event_date descending (upcoming events first)
       const events = await db<Event[]>`
-        SELECT id, name, total_tickets, available_tickets, event_date, created_at, updated_at
+        SELECT id, name, total_tickets, available_tickets, version, event_date, created_at, updated_at
         FROM events
         ORDER BY event_date DESC
         LIMIT ${limit}
@@ -65,7 +65,7 @@ function createEventService(db: Database): EventService {
 
     async getEventById(eventId: string): Promise<Event | null> {
       const events = await db<Event[]>`
-        SELECT id, name, total_tickets, available_tickets, event_date, created_at, updated_at
+        SELECT id, name, total_tickets, available_tickets, version, event_date, created_at, updated_at
         FROM events
         WHERE id = ${eventId}
       `;

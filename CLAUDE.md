@@ -8,7 +8,7 @@ Guidance for Claude Code when working with this repository.
 
 **Tech Stack**: PostgreSQL, Turborepo monorepo, Native Node.js 24 TypeScript (no transpilation), BullMQ/Redis (Level 3)
 
-**Current Status**: Level 2 complete (pessimistic locking), Level 3 in progress (async queue-based)
+**Current Status**: Level 2 complete, Level 3 Milestone 2 complete (event versioning), Milestone 3 in progress
 
 ## Essential Commands
 
@@ -60,6 +60,18 @@ Pattern: Transaction with `FOR UPDATE` pessimistic lock
 - Guarantees zero overbookings
 - Trade-off: Lower throughput, 1-2% timeouts under extreme load (expected)
 - Statement timeout: 5 seconds (see `packages/database/src/db.ts`)
+
+### Level 3 Progress: Event Versioning (Milestone 2)
+
+**Status**: Complete
+
+**Location**: `packages/database/src/schema.ts` (version column), all event/booking queries
+
+Pattern: Version field added to events table
+- All events have `version` field (starts at 0, increments on each update)
+- Level 2 booking flow increments version but doesn't check it yet
+- Foundation for Milestone 5 optimistic locking implementation
+- No performance impact on Level 2 transactions
 
 ### Error Handling
 
