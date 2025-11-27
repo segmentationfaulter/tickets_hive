@@ -40,7 +40,21 @@ const events = await transaction`
 
 **Level 3 (In Progress)**: Queue-based async processing with BullMQ + Redis
 
-Level 3 implementation is now actively planned. See `docs/level3/LEVEL_3_COMPLETE_PLAN.md` for detailed implementation strategy and requirements.
+Level 3 implementation is now actively planned. The plan is split into two documents for progressive learning:
+
+**Document 1 - MVP Plan** (for frontend developers new to backend):
+- Start here: `docs/level3/LEVEL_3_MVP_PLAN.md`
+- Covers milestones 0-6: Core async booking flow
+- Goal: Get async booking working end-to-end with <100ms response
+- Timeline: 1 week
+
+**Document 2 - Production Hardening** (operations & monitoring):
+- After MVP: `docs/level3/LEVEL_3_PRODUCTION_PLAN.md`
+- Covers milestones 7-10: Rate limiting, circuit breaker, dashboard
+- Goal: Make system production-ready for 10K+ concurrent users
+- Timeline: 1 week
+
+**Recommendation**: Begin with MVP plan if you're new to backend systems. The split approach helps you focus on core concepts before adding production complexity.
 
 ---
 
@@ -859,36 +873,47 @@ echo "jwtsecretkey" > secrets/jwt_secret.txt
 
 ## Future Enhancements (Level 3)
 
-Level 3 implementation details are defined in the specification `docs/SPECS.md` and detailed in the implementation plan `docs/level3/LEVEL_3_COMPLETE_PLAN.md`.
+Level 3 implementation is now split into two progressive plans for easier adoption:
 
-### Key Changes from Level 2 → Level 3
+### **Level 3 MVP** (`docs/level3/LEVEL_3_MVP_PLAN.md`)
+For frontend developers and backend beginners - focuses on core async concepts.
 
-**Architecture Evolution**:
+**Architecture Changes**:
 ```
 Level 2 (Current):
-Client → API → Database (FOR UPDATE locks) → Response (sync)
-        └─ High latency, timeouts, serial processing
+Client → API → Database (FOR UPDATE locks) → Response (201/409) (sync)
+        └─ 800-1500ms latency, 1-2% timeouts
 
-Level 3 (Planned):
+Level 3 MVP (Target):
 Client → API → Queue job → Response (202 Accepted) → Client
                          ↓
                       Worker → Database (optimistic locking) → SSE → Client
-                         └─ Low latency, no timeouts, parallel workers
+                         └─ <100ms latency, 0% timeouts, parallel workers
 ```
 
-**New Components**:
-- **Redis**: BullMQ job queue storage
-- **BullMQ**: Queue management and job processing
-- **Booking Workers**: Separate process(es) for async processing
-- **Optimistic Locking**: Version column instead of `FOR UPDATE`
-- **Server-Sent Events**: Real-time status updates to clients
-- **Graceful Degradation**: Fallback to Level 2 if Redis unavailable
+**MVP Components**:
+- ✅ **Redis**: BullMQ job queue storage
+- ✅ **BullMQ**: Queue management and job processing
+- ✅ **Booking Workers**: Separate process(es) for async processing
+- ✅ **Optimistic Locking**: Version column instead of `FOR UPDATE`
+- ✅ **Server-Sent Events**: Real-time status updates with "fast worker" fix
+- ❌ No rate limiting (for simplicity)
+- ❌ No circuit breaker (Redis assumed stable in dev)
 
-**Performance Targets**:
-- Concurrent requests: 1,000 → 10,000+
-- Response time: 800-1500ms → <100ms
-- Timeout rate: 1-2% → 0%
-- Throughput: 200-333 req/s → 1,000+ req/s
+**MVP Target**: 1000 concurrent requests, <100ms API response, zero overbookings
+
+### **Level 3 Production Hardening** (`docs/level3/LEVEL_3_PRODUCTION_PLAN.md`)
+For production deployments - adds protection, monitoring, and tuning.
+
+**Production Additions**:
+- 🛡️ **Rate Limiting**: 10 req/min per user, queue depth limits
+- 🛡️ **Circuit Breaker**: Fail fast on Redis failure (503 response)
+- 📊 **Separate Dashboard**: Opt-in monitoring at port 3001
+- 📊 **Structured Logging**: Pino for production logs
+- 📊 **Metrics Collection**: Queue depth, processing time, conflict rate
+- ⚡ **Configurable Everything**: Via environment variables
+
+**Production Target**: 10,000+ concurrent users, monitoring, safe operations
 
 **Why Server-Sent Events (SSE) over WebSockets?**
 - Unidirectional communication (server → client) fits booking updates
@@ -896,7 +921,12 @@ Client → API → Queue job → Response (202 Accepted) → Client
 - Simpler implementation than WebSockets
 - Built-in browser support and auto-reconnection
 
-For complete Level 3 requirements and implementation details, see `docs/SPECS.md` and `docs/level3/LEVEL_3_COMPLETE_PLAN.md`.
+**Choose Your Path:**
+1. **New to backend?** → Start with MVP Plan (milestones 0-6)
+2. **Building for production?** → Complete both MVP + Production Plan
+3. **Need the full picture?** → See `docs/SPECS.md` Level 3 section
+
+Both plans maintain the same architecture and design decisions - Production Plan simply adds operational best practices.
 
 ---
 
@@ -964,9 +994,13 @@ For complete Level 3 requirements and implementation details, see `docs/SPECS.md
 
 **File References**:
 - Architecture details: `README.md` (730 lines of comprehensive docs)
-- Level 3 implementation: `docs/level3/LEVEL_3_COMPLETE_PLAN.md` (🆕 NEW - actively planned)
 - Specification: `docs/SPECS.md` (defines all levels 1-4)
 - Load test results: `tests/load-test.ts` (run for current performance)
+
+**Level 3 Implementation Plans**:
+- **MVP Plan** (start here): `docs/level3/LEVEL_3_MVP_PLAN.md` - Core async flow for learning
+- **Production Plan**: `docs/level3/LEVEL_3_PRODUCTION_PLAN.md` - Hardening & monitoring
+- Original plan (legacy): `docs/level3/LEVEL_3_COMPLETE_PLAN.md` - Superseded by split plans
 
 **Database queries**: Check `packages/database/src/schema.ts` for schema and `packages/database/src/db.ts` for connection logic.
 

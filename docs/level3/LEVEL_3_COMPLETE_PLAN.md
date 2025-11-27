@@ -14,7 +14,9 @@
 - Worker processes handle booking logic separately
 - Optimistic locking with versioning (no `FOR UPDATE`)
 - Server-Sent Events for status updates
-- BullMQ dashboard for monitoring
+- Separate BullMQ dashboard service for monitoring
+- Rate limiting & circuit breaker protection
+- Configurable retry strategy via environment
 - Zero timeout errors, 10x throughput improvement
 - Handles 10,000+ concurrent requests
 
@@ -29,47 +31,58 @@
 │             │                         │  (/apps/api)       │
 └──────┬──────┘                         └───────────┬────────┘
        │                                           │
-       │                                           │ 2. Create Booking Job
-       │                                           │    - Validate request (Zod)
+       │                                           │ 2. Rate limit check
+       │                                           │ 3. Queue depth check
+       │                                           │ 4. Circuit breaker check
+       │                                           │ 5. Create booking job
+       │                                           │    - Validate with Zod
        │                                           │    - Generate jobId
-       │ 6. SSE: Check State + Subscribe           │    - Return 202 Accepted
+       │ 8. SSE (if not completed)                │ 6. Return 202 + jobId (<100ms)
        │ ◄─────────────────────────────────────────┤
-       │                                           │ 3. Push to BullMQ Queue
-       │                                           │    (Redis-backed)
+       │                                           │ 7. Push to BullMQ Queue
        │                                           ▼
        │                                 ┌────────────────────┐
        │                                 │   Redis            │
-       │                                 │   BullMQ Queue     │
-       │                                 │   + Dashboard UI   │
+       │                                 │   - Queue depth    │
+       │                                 │   - Job persistence│
        │                                 └───────────┬────────┘
        │                                           │
-       │                                           │ 4. Worker pulls job
+       │                                           │ 9. Worker pulls job
        │                                           ▼
        │                                 ┌────────────────────┐
        │                                 │ Worker Service     │
        │                                 │ (/apps/worker)     │
        │                                 └───────────┬────────┘
        │                                           │
-       │                                           │ 5. Process with
-       │                                           │    Optimistic Locking
-       │                                           │    (version check)
+       │                                           │ 10. Optimistic locking
+       │                                           │     (version check)
+       │                                           │ 11. Database update
        │                                           ▼
        │                                 ┌────────────────────┐
        │                                 │ PostgreSQL         │
        │                                 │                    │
        │                                 └───────────┬────────┘
        │                                           │
-       │                                           │ 6. Publish via QueueEvents
+       │                                           │ 12. QueueEvents publish
        │                                           ▼
        │                                 ┌────────────────────┐
-       └─────────────────────────────────┤  BullMQ QueueEvents│
-                                         │  (Redis Pub/Sub)   │
+       └─────────────────────────────────┤  QueueEvents       │
+                                         │  (Redis Streams)   │
                                          └────────────────────┘
 
 /packages
   /database  (Shared PostgreSQL client)
   /types     (Shared Zod schemas + TS types)
-  /lib       (Shared utilities, errors)
+  /lib       (Shared utilities, errors, Redis client)
+
+┌─────────────────────────────────────────────────────┐
+│   Monitoring Stack                                  │
+│   • Dashboard service (apps/dashboard)              │
+│   • Rate limiter metrics                            │
+│   • Circuit breaker metrics                         │
+│   • Queue depth alerts                              │
+│   • Version conflict rate alerts                    │
+└─────────────────────────────────────────────────────┘
 ```
 
 ---
@@ -339,7 +352,7 @@ The only time to use raw Redis Pub/Sub is for non-BullMQ events (e.g., custom no
 
 ---
 
-## 🛣️ Implementation Roadmap: 9 Milestones
+## 🛣️ Implementation Roadmap: 10 Milestones
 
 ### **Milestone 0: Monorepo Restructure - Foundation Preparation**
 
@@ -448,9 +461,23 @@ npm run test:load
    ```
 
 3. **Environment Configuration**
-   - Add `REDIS_HOST`, `REDIS_PORT`, `REDIS_PASSWORD` to `packages/lib/src/env.ts`
+   - Add Redis configuration to `packages/lib/src/env.ts`:
+     ```typescript
+     REDIS_HOST: z.string().default("localhost"),
+     REDIS_PORT: z.number().default(6379),
+     REDIS_PASSWORD: z.string().optional(),
+     // Retry strategy configuration
+     WORKER_MAX_RETRIES: z.number().default(3),
+     WORKER_RETRY_DELAY_MS: z.number().default(100),
+     WORKER_RETRY_MAX_DELAY_MS: z.number().default(1000),
+     WORKER_CONCURRENCY: z.number().default(5),
+     REDIS_QUEUE_MAX_DEPTH: z.number().default(1000),
+     // Circuit breaker
+     CIRCUIT_BREAKER_TIMEOUT: z.number().default(3000),
+     CIRCUIT_BREAKER_ERROR_THRESHOLD: z.number().default(50),
+     CIRCUIT_BREAKER_RESET_TIMEOUT: z.number().default(30000),
+     ```
    - Update `.env.example` with Redis defaults
-   - Add config validation in Zod schema
 
 4. **Redis Connection Setup**
    - Create `packages/lib/src/redis.ts` with connection factory
@@ -466,11 +493,10 @@ npm run test:load
 - ✅ All imports resolve via packages
 
 **Files Modified/Created:**
-- `compose.yaml` (add Redis service + BullMQ dashboard)
+- `compose.yaml` (add Redis service)
 - Root `package.json` (add bullmq, ioredis, zod)
-- `packages/lib/src/env.ts` (add Redis env vars)
+- `packages/lib/src/env.ts` (add Redis and retry env vars)
 - `packages/lib/src/redis.ts` (new file, shared Redis client)
-- `apps/api/src/lib/dashboard.ts` (new, BullMQ dashboard)
 
 **Validation:**
 ```bash
@@ -635,20 +661,22 @@ docker compose exec redis redis-cli KEYS "bull:*"
    - Create `apps/worker/src/index.ts` (worker entry point)
    - Import and start all queue processors
    - Add graceful shutdown handling (SIGTERM, SIGINT)
-   - Add worker health endpoint(`/health`)
+   - Add worker health endpoint (`/health`)
+   - Set concurrency from environment: `env.WORKER_CONCURRENCY`
 
 2. **Docker Service Setup**
    - Add `worker` service to `compose.yaml`
-   - Set startup command: `node apps/worker/dist/index.js` (production) or `tsx watch apps/worker/src/index.ts` (dev)
+   - Set startup command: `node apps/worker/dist/index.js` (production) or `node --watch --experimental-transform-types apps/worker/src/index.ts` (dev)
    - Share same environment variables as API
    - Add volume mounts for hot-reload in development
 
-3. **Processor Implementation**
-   - Process job: extract `userId`, `eventId` (already validated by Zod)
-   - Call booking logic (refactor from bookingService)
-   - Handle success: update job status → trigger SSE notification via QueueEvents
-   - Handle failure: retry logic, exponential backoff
-   - Log processing time and queue depth
+3. **Booking Processor (Skeleton)**
+   - Create `apps/worker/src/processors/bookingProcessor.ts` with stub implementation
+   - Extract `userId`, `eventId` from job data (already validated by Zod)
+   - Log job receipt and queue depth monitoring
+   - Add placeholder for optimistic locking logic (Milestone 8)
+   - Handle graceful failure: no database calls yet
+   - **IMPORTANT: Do NOT implement actual booking logic here yet**
 
 4. **Database Connection Management**
    - Worker needs direct PostgreSQL access
@@ -658,13 +686,14 @@ docker compose exec redis redis-cli KEYS "bull:*"
 **Expected Output:**
 - ✅ Worker container starts and connects to Redis
 - ✅ Worker polls queue for jobs
+- ✅ Worker logs show job receipt (no processing yet)
 - ✅ Worker can be scaled: `docker compose up -d --scale worker=3`
-- ✅ Worker logs show job processing
 - ✅ Graceful shutdown works (completes current job before exiting)
+- ✅ **No optimistic locking implementation yet** (that comes in Milestone 8)
 
 **Files Modified/Created:**
 - `apps/worker/src/index.ts` (worker entry)
-- `apps/worker/src/processors/bookingProcessor.ts` (processing logic)
+- `apps/worker/src/processors/bookingProcessor.ts` (skeleton)
 - `compose.yaml` (add worker service)
 - `apps/api/src/middleware/worker-health.ts` (health monitoring)
 
@@ -675,8 +704,9 @@ docker compose up -d worker
 # Check worker logs
 docker compose logs -f worker
 # Should see: "Worker listening for booking jobs..."
+# Jobs should be logged as received but not processed
 
-# Scale workers
+# Test scaling
 docker compose up -d --scale worker=3
 docker compose logs worker
 # Should see 3 worker instances processing
@@ -684,66 +714,143 @@ docker compose logs worker
 
 ---
 
-### **Milestone 5: API Endpoint Migration to Async Pattern**
+### **Milestone 5: Optimistic Locking Implementation in Workers**
 
-**Objective:** Transform the booking endpoint from synchronous to asynchronous.
+**Objective:** Implement booking logic in workers using optimistic locking with version numbers. **This MUST come before API migration.**
+
+**CRITICAL ORDERING NOTE:** This milestone must be completed BEFORE Milestone 6 (API migration) to prevent deploying a system where the API creates jobs that workers cannot process.
 
 ** Tasks:**
-1. **Endpoint Logic Refactor**
-   - Keep validation logic (Zod schema, auth)
-   - Remove direct call to `bookingService.createBooking()`
-   - Add call to `queueService.createBookingJob()`
-   - Return job ID and status URL
-
-2. **Response Format Change**
-   - Change status from `201` → `202 Accepted`
-   - Response body:
-   ```json
-   {
-     "success": true,
-     "data": {
-       "jobId": "bull:booking:123",
-       "status": "queued",
-       "statusUrl": "/api/v1/bookings/status/:jobId",
-       "estimatedTimeSeconds": 5
-     },
-     "message": "Booking request accepted. Use Server-Sent Events at statusUrl for real-time updates."
+1. **Complete Worker Processing Logic**
+   - Update `apps/worker/src/processors/bookingProcessor.ts` with full implementation
+   - Use optimistic locking pattern (no FOR UPDATE):
+   ```typescript
+   async function processBooking(job: Job<BookingJobData>) {
+     const { userId, eventId } = job.data;
+     
+     // Read event WITHOUT locking
+     const events = await sql`
+       SELECT * FROM events 
+       WHERE id = ${eventId}
+     `;
+     const event = events[0];
+     
+     if (!event) {
+       throw new AppError(ErrorCode.EVENT_NOT_FOUND);
+     }
+     
+     // Optimistic update: version must match
+     const currentVersion = event.version;
+     const result = await sql`
+       UPDATE events
+       SET 
+         available_tickets = available_tickets - 1,
+         version = version + 1,
+         updated_at = NOW()
+       WHERE id = ${eventId} 
+         AND version = ${currentVersion}
+         AND available_tickets > 0
+       RETURNING id, version, available_tickets
+     `;
+     
+     // Check if update succeeded
+     if (result.count === 0) {
+       // Either version changed (conflict) or sold out
+       throw new AppError(ErrorCode.EVENT_SOLD_OUT_OR_CONFLICT);
+     }
+     
+     // Create booking record
+     const bookingResult = await sql`
+       INSERT INTO bookings (user_id, event_id, status)
+       VALUES (${userId}, ${eventId}, 'CONFIRMED')
+       RETURNING id
+     `;
+     
+     return {
+       success: true,
+       bookingId: bookingResult[0].id,
+       eventId,
+       remainingTickets: result[0].available_tickets
+     };
    }
    ```
 
-3. **New Dependencies**
-   - API now depends on `packages/lib/queues` and `packages/types`
-   - Worker depends on `packages/lib/queues`, `packages/types`, `packages/database`
+2. **Retry Strategy with Configurable Backoff**
+   ```typescript
+   // In packages/lib/src/queues.ts
+   export const bookingQueue = new Queue('booking', {
+     connection: redis,
+     defaultJobOptions: {
+       attempts: env.WORKER_MAX_RETRIES,
+       backoff: {
+         type: 'exponential',
+         delay: env.WORKER_RETRY_DELAY_MS
+       },
+       timeout: 30000,
+       removeOnComplete: { age: 3600 },
+       removeOnFail: { age: 24 * 3600 }
+     }
+   });
+   ```
+   - Add jitter to prevent thundering herd:
+   ```typescript
+   const jitter = Math.random() * 100; // 0-100ms random
+   const delay = Math.min(
+     delay * 2 + jitter, 
+     env.WORKER_RETRY_MAX_DELAY_MS
+   );
+   ```
 
-4. **Update Tests**
-   - Update unit tests for new async behavior
-   - Add test for job queueing validation
-   - Add test for invalid job data rejection
-   - Add integration test: API → Queue → Worker flow
+3. **Handle Version Conflicts**
+   - Retry on version conflict (BullMQ handles this automatically)
+   - Log conflict rate for monitoring
+   - No custom retry logic needed (BullMQ retry strategy applies)
+
+4. **Race Condition Testing**
+   - Run 1000 concurrent requests
+   - Monitor for "version conflict" errors in failed jobs (expected)
+   - Verify version conflicts result in retry, not failure
+   - Verify exactly 100 bookings created
+   - Verify available_tickets = 0 (not negative)
+   - Check version numbers: final version should be 100
+
+5. **Performance Comparison**
+   - Measure throughput vs Level 2
+   - Verify worker processing time (~200-500ms avg)
+   - Monitor retry rate (should be <5% under 1000 concurrent)
 
 **Expected Output:**
-- ✅ API returns in <100ms consistently
-- ✅ Job ID returned to client immediately
-- ✅ Job appears in Redis queue
-- ✅ Worker picks up job within seconds
-- ✅ Zero `FOR UPDATE` queries in the API path
+- ✅ No `FOR UPDATE` queries in worker codebase
+- ✅ Version checking prevents overbooking
+- ✅ Retry logic handles conflicts gracefully
+- ✅ Worker successfully processes booking jobs end-to-end
+- ✅ Data integrity: 100 bookings, 0 available tickets
+- ✅ **API still uses Level 2 synchronous transactions** (not migrated yet)
 
 **Files Modified/Created:**
-- `apps/api/src/routes/bookings.ts` (refactor POST endpoint via queue)
-- `apps/api/src/services/queueService.ts` (enhance job creation)
-- `tests/integration/api-queue-worker.test.ts` (new integration test)
+- `apps/worker/src/processors/bookingProcessor.ts` (complete implementation)
+- `packages/lib/src/queues.ts` (retry configuration with env vars)
+- `packages/database/src/events.ts` (version update queries)
+- `scripts/benchmark-level2-vs-level3.ts` (performance comparison)
 
 **Validation:**
 ```bash
+# Test worker processing directly
 curl -X POST http://localhost:3000/api/v1/bookings \
   -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/json" \
   -d '{"eventId": "..."}'
-# Expected: 202 Accepted with jobId
-# Response time: <100ms
+# Should still return 201 (still using Level 2)
 
-docker compose logs worker
-# Should show: Processing job bull:booking:123
+# Check worker logs
+docker compose logs -f worker
+# Should show jobs being processed (if any exist)
+
+# Run load test to verify locking
+npm run test:load
+# Should show exactly 100 bookings
+# available_tickets = 0
+# Version conflicts < 5%
+# (Worker will process Level 2 jobs if queue exists)
 ```
 
 ---
@@ -848,7 +955,30 @@ eventSource.addEventListener('confirmed', (event) => {
 **Objective:** Handle the race condition where worker finishes before client connects to SSE, ensuring clients always receive final status.
 
 ** Tasks:**
-1. **Check State Before Subscribing**
+1. **Add Circuit Breaker for Redis**
+   ```typescript
+   // packages/lib/src/redis.ts
+   import CircuitBreaker from 'opossum';
+   
+   const redisCircuitBreaker = new CircuitBreaker(
+     async (operation: () => Promise<any>) => operation(),
+     {
+       timeout: env.CIRCUIT_BREAKER_TIMEOUT,
+       errorThresholdPercentage: env.CIRCUIT_BREAKER_ERROR_THRESHOLD,
+       resetTimeout: env.CIRCUIT_BREAKER_RESET_TIMEOUT,
+       rollingCountTimeout: 10000,
+       rollingCountBuckets: 10,
+     }
+   );
+   
+   export async function getRedisConnection() {
+     return redisCircuitBreaker.fire(() => {
+       // Redis connection attempt
+     });
+   }
+   ```
+
+2. **Check State Before Subscribing**
    ```typescript
    // In GET /api/v1/bookings/status/:jobId
    
@@ -911,20 +1041,32 @@ eventSource.addEventListener('confirmed', (event) => {
    req.on('close', cleanup);
    ```
 
-2. **Scenarios Handled**
+3. **Hard Fail on Redis Unavailability**
+   ```typescript
+   // In queue service
+   if (redisCircuitBreaker.opened) {
+     throw new AppError(
+       ErrorCode.REDIS_UNAVAILABLE,
+       'Queue temporarily unavailable'
+     );
+   }
+   ```
+
+4. **Scenarios Handled**
    - **Fast Worker**: Worker finished at t=10ms, client connects at t=50ms → Job state check returns completed → Client receives result immediately
    - **Normal Case**: Worker still processing → Client subscribes → Receives updates via QueueEvents
    - **Late Join**: Client retries after disconnect → State check catches them up
    - **Job Failed**: State check or event notification sends failure reason
+   - **Redis Down**: Circuit breaker returns 503 immediately, no hanging
 
-3. **Event Types**
+5. **Event Types**
    - `event: queued` - Job received, waiting for worker
    - `event: processing` - Worker picked up job (job.started)
    - `event: confirmed` - Booking successful (with bookingId)
    - `event: failed` - Booking failed (reason: sold out, error)
    - `event: error` - System error (job not found, etc.)
 
-4. **Testing the Race Condition**
+6. **Testing the Race Condition**
    ```typescript
    // Test case: Worker completes in <100ms
    it('should return confirmed immediately if worker finished early', async () => {
@@ -949,10 +1091,13 @@ eventSource.addEventListener('confirmed', (event) => {
 - ✅ No hanging connections waiting for missed events
 - ✅ Works reliably under load with fast workers
 - ✅ Scales horizontally (QueueEvents ensures all API instances receive updates)
+- ✅ Circuit breaker protects against Redis failures
+- ✅ Returns 503 immediately if Redis unavailable (hard fail)
 
 **Files Modified/Created:**
 - `apps/api/src/routes/booking-status.ts` (enhanced with state check)
 - `apps/api/src/services/notificationService.ts` (QueueEvents handlers)
+- `packages/lib/src/redis.ts` (add circuit breaker)
 - `tests/integration/sse-race-condition.test.ts` (new test)
 
 **Validation:**
@@ -964,6 +1109,14 @@ eventSource.addEventListener('confirmed', (event) => {
 4. Connect to SSE endpoint
 5. Should immediately receive 'confirmed' event
 # (No hanging, no waiting)
+
+# Test Redis failure
+docker compose stop redis
+curl -X POST http://localhost:3000/api/v1/bookings \
+  -H "Authorization: Bearer $TOKEN" \
+  -d '{"eventId": "..."}'
+# Expected: 503 Service Unavailable, not hang
+docker compose start redis
 ```
 
 ---
@@ -1093,6 +1246,8 @@ npm run test:load
    - Measure API response time (should be <100ms)
    - Measure total booking time (API + worker + SSE)
    - Test with 1000, 5000, 10000 concurrent requests
+   - Measure rate limiting effectiveness
+   - Monitor circuit breaker state changes
 
 2. **Error Handling Matrix (NO GRACEFUL DEGRADATION)**
    ```
@@ -1101,13 +1256,15 @@ npm run test:load
    | Valid booking | Success | 202 Accepted | confirmed |
    | Event sold out | Fail (no retry) | 202 Accepted | failed (409) |
    | Invalid eventId | Fail | 202 Accepted | failed (404) |
-   | Version conflict | Retry (max 3) | 202 Accepted | confirmed |
+   | Version conflict | Retry (max env.WORKER_MAX_RETRIES) | 202 Accepted | confirmed |
    | Worker crash | Job re-queued | 202 Accepted | processing → confirmed |
-   | Redis down | Cannot queue job | 503 Service Unavailable | N/A (no jobId) |
+   | Rate limit exceeded | N/A | 429 Too Many Requests | N/A |
+   | Queue depth exceeded | N/A | 503 Queue Full | N/A |
+   | Redis down | Cannot queue job | 503 Service Unavailable (circuit open) | N/A |
    ```
    
    **IMPORTANT - No Graceful Degradation:**
-   - If Redis is down, API returns 503 immediately
+   - If Redis is down, API returns 503 immediately via circuit breaker
    - No fallback to Level 2 synchronous transactions
    - Reason: Prevents database overload during Redis failures
    - Client responsibility: Retry with exponential backoff
@@ -1118,27 +1275,36 @@ npm run test:load
    - **Level 3 Target:** 2000-5000 req/s, <100ms latency, 0% timeouts
    - **Worker Processing:** 200-500ms avg per job
    - **SSE Delivery:** Near-instant after worker completion
+   - **Rate Limiting:** 10 req/min per user enforced
+   - **Queue Depth:** <50 avg under 10K requests
    - Monitor Redis memory usage and queue depth
+   - Monitor version conflict rate (<5% target)
+   - Monitor circuit breaker state changes
 
-4. **BullMQ Dashboard Security**
-   - Dashboard mounted at `/admin/queues`
-   - Add authentication middleware (require admin role)
-   - Don't expose in production without auth
+4. **Configuration Tuning**
+   - Adjust `WORKER_CONCURRENCY` based on CPU cores
+   - Tune `WORKER_MAX_RETRIES` if conflict rate >5%
+   - Adjust `REDIS_QUEUE_MAX_DEPTH` based on load tests
+   - Set `CIRCUIT_BREAKER_ERROR_THRESHOLD` appropriately
+   - Document production configurations
 
 5. **Documentation Updates**
    - Update `README.md` with Level 3 architecture
    - Document monorepo structure (/apps, /packages)
    - Explain SSE state-check pattern
    - Document "no graceful degradation" decision
+   - Document rate limiting and circuit breaker rationale
    - Create troubleshooting guide
    - Add deployment guide for multiple workers
 
 6. **Production Readiness**
-   - Add rate limiting (per-user: 10 req/min)
-   - Add circuit breaker for Redis connections
    - Add structured logging (Pino)
-   - Add metrics collection (queue depth, processing time, conflict rate)
-   - Update Docker Compose for production (builds, no volumes)
+   - Add metrics collection (queue depth, processing time, conflict rate, circuit breaker state)
+   - Set up alerts for high queue depth (>1000)
+   - Set up alerts for high conflict rate (>10%)
+   - Set up alerts for circuit breaker opening
+   - Load testing with production-like configuration
+   - Security audit (rate limiting, circuit breaker)
 
 **Expected Output:**
 - ✅ Zero race conditions detected
@@ -1147,15 +1313,18 @@ npm run test:load
 - ✅ SSE reliably delivers status updates
 - ✅ Load tests pass consistently at 10K requests
 - ✅ Redis queue depth stays manageable
+- ✅ Rate limiting prevents abuse
+- ✅ Circuit breaker protects against Redis failures
 - ✅ Complete documentation including no-degradation decision
 
 **Files Modified/Created:**
-- `tests/load-test.ts` (update for async + SSE)
+- `tests/load-test.ts` (update for async + SSE + metrics)
 - `tests/stress-test-10k.ts` (new, 10K request test)
-- `apps/api/src/middleware/rate-limit.ts` (new)
+- `tests/rate-limit.test.ts` (new, rate limiting validation)
 - `docs/level3-performance.md` (performance results)
 - `docs/troubleshooting.md` (debugging guide)
-- `docs/no-degradation-decision.md` (NEW - explains hard fail rationale)
+- `docs/no-degradation-decision.md` (explains hard fail rationale)
+- `docs/configuration-guide.md` (environment variable tuning)
 - `README.md` (reorganized for monorepo)
 
 **Validation:**
@@ -1167,11 +1336,13 @@ npm run test:load
 # Total Requests: 10000
 # Successful Bookings: 100 (1%)
 # Sold Out Rejections: 9800-9900 (98-99%)
+# Rate Limited: 0 (0%)
 # Timeout Errors: 0 ✅
 # API Avg Response: 45ms ✅
 # Worker Avg Processing: 350ms ✅
 # Race Conditions: 0 ✅
 # Retries (version conflict): < 5% of successful bookings
+# Circuit Breaker: Closed (healthy)
 
 # Check queue depth during test
 docker compose exec redis redis-cli LLEN "bull:booking:waiting"
@@ -1186,11 +1357,12 @@ docker compose stop redis
 curl -X POST http://localhost:3000/api/v1/bookings \
   -H "Authorization: Bearer $TOKEN" \
   -d '{"eventId": "..."}'
-# Expected: 503 Service Unavailable
-# NOT: synchronous processing fallback
-# Reason: Protect database from overload
+# Expected: 503 Service Unavailable immediately
+# NOT: synchronous processing fallback or hanging
+# Reason: Circuit breaker opens, protects database
 
 docker compose start redis
+# Circuit breaker should close after reset timeout
 ```
 
 ---
@@ -1498,30 +1670,111 @@ Each milestone must include:
 ## 🚫 Common Pitfalls to Avoid
 
 1. **Skipping Milestone 0**: Don't add Redis to monolithic structure. Restructure first.
-2. **Removing FOR UPDATE too early**: Keep it until optimistic locking is fully tested
-3. **Raw Redis Pub/Sub**: Use BullMQ QueueEvents for horizontal scaling
-4. **Missing Zod validation**: Always validate at both producer and consumer
-5. **No SSE state check**: Without it, "Fast Worker" race condition causes lost updates
-6. **Implementing graceful degradation**: Hard fail is safer and simpler for Level 3
-7. **Forgetting auth on BullMQ dashboard**: Exposes sensitive queue data
-8. **Not testing with multiple workers**: Single worker hides concurrency bugs
-9. **Ignoring version conflict rate**: Should be <5%, tune retry if higher
-10. **Incomplete cleanup**: SSE connections leak memory without disconnect handlers
+2. **Removing FOR UPDATE too early**: Keep it until optimistic locking is fully tested (Milestone 5 FIRST)
+3. **Wrong milestone order**: Implement optimistic locking (Milestone 5) BEFORE API migration (Milestone 6)
+4. **Raw Redis Pub/Sub**: Use BullMQ QueueEvents for horizontal scaling
+5. **Missing Zod validation**: Always validate at both producer and consumer
+6. **No SSE state check**: Without it, "Fast Worker" race condition causes lost updates
+7. **Implementing graceful degradation**: Hard fail is safer and simpler for Level 3
+8. **Forgetting auth on BullMQ dashboard**: Exposes sensitive queue data
+9. **Not testing with multiple workers**: Single worker hides concurrency bugs
+10. **Ignoring version conflict rate**: Should be <5%, tune retry if higher
+11. **No circuit breaker**: Redis failures cause cascading timeouts
+12. **No rate limiting**: Abuse vectors and queue overflow risks
+13. **Dashboard in API**: Security risk and violates separation of concerns
+14. **Hardcoded retry config**: Production tuning requires code changes
+15. **Incomplete cleanup**: SSE connections leak memory without disconnect handlers
 
 ---
 
-## ✅ Decisions Summary (Final)
+### **Milestone 10: Separate BullMQ Dashboard Service**
 
-✅ **Monorepo structure** - Dedicated Milestone 0 before Level 3 development  
-✅ **Zod schemas** - Runtime validation contract between API and Worker  
-✅ **QueueEvents** - Built-in horizontal scaling for SSE notifications  
-✅ **Fast Worker fix** - State check before subscribe (Milestone 7)  
-✅ **No graceful degradation** - Hard fail (503) if Redis unavailable  
-✅ **BullMQ dashboard** - Admin UI at `/admin/queues` (with auth)  
-✅ **No SSE persistence** - In-memory connections only  
-✅ **Strictly Level 3** - No Level 4 features (idempotency, distributed locks)  
+**Objective:** Create a separate dashboard service for monitoring queues, decoupled from API service. **For production, dashboard should be disabled or heavily secured.**
 
-**Plan complete and ready for implementation!**
+** Tasks:**
+1. **Create Dashboard Service**
+   - Create `apps/dashboard/src/index.ts` (dashboard entry point)
+   - Mount BullMQ dashboard at root path `/`
+   - Add authentication middleware (require admin role)
+   - Use shared Redis connection from `packages/lib`
+
+2. **Docker Service Setup**
+   ```yaml
+   # Add to compose.yaml
+   dashboard:
+     build:
+       context: .
+       target: development
+     ports:
+       - "3001:3001"  # Separate port, not exposed publicly
+     environment:
+       PORT: 3001
+       REDIS_HOST: redis
+       # Same Redis config as API/Worker
+     depends_on:
+       - redis
+     profiles:
+       - monitoring  # Only start when explicitly requested
+   ```
+
+3. **Security Considerations**
+   - Dashboard ONLY starts with `--profile monitoring` flag:
+   ```bash
+   docker compose --profile monitoring up dashboard
+   ```
+   - In production: Remove dashboard from compose entirely OR add VPN-only access
+   - Alternative: Use external monitoring (DataDog, New Relic) instead of dashboard
+   - Exposing queue data publicly is a security risk
+
+4. **Authentication Required**
+   ```typescript
+   // apps/dashboard/src/middleware/require-admin.ts
+   app.use('/admin', verifyJWT, requireAdmin);
+   ```
+
+**Expected Output:**
+- ✅ Dashboard accessible at `http://localhost:3001` (when started)
+- ✅ Shows queue depth, job status, processing times
+- ✅ Requires admin authentication
+- ✅ Does NOT start by default (opt-in with profile)
+- ✅ API service does NOT mount dashboard
+
+**Files Modified/Created:**
+- `apps/dashboard/src/index.ts` (dashboard entry)
+- `apps/dashboard/package.json` (new)
+- `compose.yaml` (add dashboard service with profile)
+- `apps/dashboard/src/middleware/require-admin.ts` (auth)
+
+**Validation:**
+```bash
+# Start dashboard explicitly
+docker compose --profile monitoring up -d dashboard
+
+# Dashboard should be running
+curl http://localhost:3001
+# Should show BullMQ dashboard (requires auth)
+
+# Verify API does NOT have dashboard
+curl http://localhost:3000/admin/queues
+# Should return 404 Not Found
+
+# Stop monitoring services
+docker compose --profile monitoring down
+```
+
+**Production Recommendation:**
+```yaml
+# In production compose override, remove dashboard entirely
+# Or restrict to internal network only
+services:
+  dashboard:
+    profiles:
+      - never  # Never start in production
+    # Or use internal network:
+    networks:
+      - internal
+    ports: []  # No external ports
+```
 
 ---
 
