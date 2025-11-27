@@ -1,681 +1,1179 @@
 # TicketHive Level 3 Production Hardening Plan
 
-**Level 3 MVP → Production-Ready**
+## 🎯 Goal: Production-Ready Resilience & Monitoring
 
-## 🎯 Goal: Make Async Booking Production-Ready
+**This is Part 2 of Level 3 - Production Hardening**
 
-**Current State (MVP):**
-- ✅ Async booking works (<100ms response)
-- ✅ Optimistic locking prevents overbookings
-- ✅ SSE delivers status updates reliably
-- ❌ No protection against abuse
-- ❌ No graceful failure when Redis is down
-- ❌ No queue backpressure
-- ❌ No monitoring dashboard
-- ❌ No structured logging or metrics
+**Prerequisites**: Complete MVP (Milestones 0-6) first. Your async booking system should be working end-to-end.
 
-**Production Target State:**
-- 🛡️ Rate limiting (10 req/min per user)
-- 🛡️ Circuit breaker (fail fast on Redis failure)
-- 🛡️ Queue backpressure (prevent Redis overload)
-- 📊 Separate dashboard for monitoring
-- 📊 Structured logging and metrics
-- ⚡ Configuration via environment variables
-- 🔒 Security hardening
-
-**What You're Adding:** Protection, monitoring, and tuning - the invisible features that prevent 3am pages.
+**What You'll Add**: Real-time status updates, edge case handling, rate limiting, circuit breakers, and monitoring. After this phase, your system will be production-ready.
 
 ---
 
-## 📋 Production Architecture (Additions to MVP)
+## 📋 What's Added in Production Phase
 
 ```
-┌─────────────────────────────────────────────────┐
-│         MVP Foundation (Already Built)          │
-│  Client → API → Redis → Worker → DB → SSE       │
-└──────────────────┬──────────────────────────────┘
-                   │
-                   │ Production Additions:
-                   │
-                   │ 🛡️ Rate Limiter
-                   │    Checks: User limit (10/min)
-                   │             Queue depth limit
-                   │
-                   │ 🛡️ Circuit Breaker
-                   │    Monitors: Redis health
-                   │    Action: Fast fail (503)
-                   │
-                   │ 📊 Dashboard Service
-                   │    Port: 3001 (opt-in)
-                   │    Auth: Admin role required
-                   │
-                   │ 📊 Metrics Collection
-                   │    Queue depth, processing time
-                   │    Conflict rate, retry count
-                   │
-                   │ ⚡ Configurable Everything
-                   │    Via environment variables
-                   │
-┌──────────────────▼──────────────────────────────┐
-│           Production Monitoring Stack           │
-│  • Alerts on high queue depth (>500)            │
-│  • Alerts on high conflict rate (>10%)          │
-│  • Alerts on circuit breaker open               │
-│  • Structured logs for debugging                │
-└─────────────────────────────────────────────────┘
-```
+MVP System (M0-M6):
+  ✅ API returns 202 + jobId
+  ✅ Workers process jobs with optimistic locking
+  ✅ Basic status polling via GET /status/:jobId
 
-**What's Different from MVP:**
-- API checks rate limits before queueing
-- Circuit breaker prevents database overload
-- Queue depth monitoring prevents Redis memory issues
-- Dashboard shows real-time queue status
-- Everything configurable without code changes
+Production Additions (M7-M10):
+  ✨ Real-time SSE updates (no polling needed)
+  ✨ "Fast Worker" edge case handled
+  ✨ Rate limiting (10 req/min per user)
+  ✨ Circuit breaker (hard fail when Redis down)
+  ✨ Comprehensive error handling
+  ✨ BullMQ monitoring dashboard
+  ✨ 10K concurrent request load testing
+```
 
 ---
 
-## 🛣️ Production Hardening Roadmap: 4 Milestones
+## 🛣️ Production Milestones (7-10)
 
-### **Milestone 7: Rate Limiting & Queue Protection**
+### **Milestone 7: Server-Sent Events (SSE) Implementation**
 
-**Objective:** Prevent abuse and Redis overload.
+**Objective**: Provide real-time status updates to clients via Server-Sent Events, using BullMQ QueueEvents for reliable horizontal scaling.
 
-** Tasks:**
-1. **Create Rate Limiting Middleware** (`apps/api/src/middleware/rate-limit.ts`):
-```typescript
-const rateLimiter = {
-  // Per-user rate limiting
-  perUser: new Map<string, { count: number; timestamp: number }>(),
-  
-  checkUserLimit(userId: string) {
-    const now = Date.now();
-    const user = this.perUser.get(userId);
-    
-    if (!user || now - user.timestamp > 60000) {
-      this.perUser.set(userId, { count: 1, timestamp: now });
-      return { allow: true };
-    }
-    
-    if (user.count >= 10) { // 10 req/min
-      return { 
-        allow: false, 
-        retryAfter: 60 - Math.floor((now - user.timestamp) / 1000) 
-      };
-    }
-    
-    user.count++;
-    return { allow: true };
-  },
-  
-  // Queue backpressure
-  async checkQueuePressure() {
-    const waiting = await bookingQueue.getWaitingCount();
-    if (waiting > env.REDIS_QUEUE_MAX_DEPTH) {
-      return { allow: false, retryAfter: 30 };
-    }
-    return { allow: true };
-  }
-};
-```
+**Why SSE?**: Instead of clients polling every second, the server pushes updates as they happen. HTTP-based, auto-reconnection, simpler than WebSockets.
 
-2. **Add Rate Limit to Booking Endpoint**:
-```typescript
-// In POST /api/v1/bookings router
-const rateLimit = rateLimiter.checkUserLimit(req.user!.userId);
-if (!rateLimit.allow) {
-  return res.status(429).json({
-    error: {
-      code: "RATE_LIMIT_EXCEEDED",
-      message: `Too many requests. Retry after ${rateLimit.retryAfter}s.`
-    }
-  });
-}
+**Why QueueEvents?**: Raw Redis Pub/Sub doesn't scale horizontally. QueueEvents broadcasts to all API instances, allowing any instance to notify its connected clients.
 
-const queuePressure = await rateLimiter.checkQueuePressure();
-if (!queuePressure.allow) {
-  return res.status(503).json({
-    error: {
-      code: "QUEUE_OVERLOAD",
-      message: "High traffic detected. Please try again in a moment."
-    }
-  });
-}
-```
+**Tasks**:
 
-3. **Add Configuration to Environment**:
-```typescript
-// packages/lib/src/env.ts
-REDIS_QUEUE_MAX_DEPTH: z.number().default(1000),
-RATE_LIMIT_PER_USER: z.number().default(10),
-RATE_LIMIT_WINDOW_MS: z.number().default(60000),
-```
+1. **SSE Endpoint Setup**
 
-**Validation:**
+   Update `apps/api/src/routes/bookings.ts`:
+   ```typescript
+   import { QueueEvents } from "bullmq";
+   import { redis } from "@ticket-hive/lib";
+
+   /**
+    * GET /api/v1/bookings/status/:jobId
+    *
+    * Production: Real-time SSE updates (replaces polling)
+    */
+   router.get("/status/:jobId", async (req, res) => {
+     const { jobId } = req.params;
+
+     // Set SSE headers
+     res.writeHead(200, {
+       "Content-Type": "text/event-stream",
+       "Cache-Control": "no-cache",
+       "Connection": "keep-alive",
+       "X-Accel-Buffering": "no", // Disable nginx buffering
+     });
+
+     // Send initial status
+     res.write(`event: connected\ndata: {"jobId": "${jobId}"}\n\n`);
+
+     // Subscribe to job events
+     const queueEvents = new QueueEvents("booking", { connection: redis });
+
+     const onCompleted = ({ jobId: completedId, returnvalue }: any) => {
+       if (completedId === jobId) {
+         res.write(
+           `event: confirmed\ndata: ${JSON.stringify(returnvalue)}\n\n`
+         );
+         res.end();
+         cleanup();
+       }
+     };
+
+     const onFailed = ({ jobId: failedId, failedReason }: any) => {
+       if (failedId === jobId) {
+         res.write(
+           `event: failed\ndata: ${JSON.stringify({ error: failedReason })}\n\n`
+         );
+         res.end();
+         cleanup();
+       }
+     };
+
+     const onProgress = ({ jobId: progressId, data }: any) => {
+       if (progressId === jobId) {
+         res.write(`event: progress\ndata: ${JSON.stringify(data)}\n\n`);
+       }
+     };
+
+     queueEvents.on("completed", onCompleted);
+     queueEvents.on("failed", onFailed);
+     queueEvents.on("progress", onProgress);
+
+     // Cleanup on client disconnect
+     const cleanup = () => {
+       queueEvents.off("completed", onCompleted);
+       queueEvents.off("failed", onFailed);
+       queueEvents.off("progress", onProgress);
+       queueEvents.close();
+     };
+
+     req.on("close", cleanup);
+   });
+   ```
+
+2. **Track Active Connections**
+
+   Create `apps/api/src/lib/connectionManager.ts`:
+   ```typescript
+   import { Response } from "express";
+
+   /**
+    * Connection Manager
+    *
+    * Tracks active SSE connections per API instance.
+    * Each instance only tracks its own connections (no shared state).
+    */
+   class ConnectionManager {
+     private connections = new Map<string, Response>();
+
+     add(jobId: string, res: Response) {
+       this.connections.set(jobId, res);
+     }
+
+     remove(jobId: string) {
+       this.connections.delete(jobId);
+     }
+
+     get(jobId: string): Response | undefined {
+       return this.connections.get(jobId);
+     }
+
+     getCount(): number {
+       return this.connections.size;
+     }
+   }
+
+   export const connectionManager = new ConnectionManager();
+   ```
+
+3. **Client Example**
+
+   Create `examples/sse-client.html`:
+   ```html
+   <!DOCTYPE html>
+   <html>
+     <head>
+       <title>Async Booking with SSE</title>
+     </head>
+     <body>
+       <h1>Real-Time Booking Status</h1>
+       <div id="status">Connecting...</div>
+
+       <script>
+         async function bookTicket() {
+           const authToken = "YOUR_TOKEN";
+           const eventId = "YOUR_EVENT_ID";
+
+           // 1. Create booking
+           const response = await fetch(
+             "http://localhost:3000/api/v1/bookings",
+             {
+               method: "POST",
+               headers: {
+                 "Content-Type": "application/json",
+                 Authorization: `Bearer ${authToken}`,
+               },
+               body: JSON.stringify({ eventId }),
+             }
+           );
+
+           const result = await response.json();
+           const { jobId } = result.data;
+
+           console.log("Job created:", jobId);
+
+           // 2. Connect to SSE for real-time updates
+           const eventSource = new EventSource(
+             `http://localhost:3000/api/v1/bookings/status/${jobId}`
+           );
+
+           eventSource.addEventListener("connected", (e) => {
+             document.getElementById("status").textContent =
+               "Connected. Waiting for result...";
+           });
+
+           eventSource.addEventListener("confirmed", (e) => {
+             const data = JSON.parse(e.data);
+             document.getElementById("status").textContent =
+               `✅ Booking confirmed! ID: ${data.bookingId}`;
+             eventSource.close();
+           });
+
+           eventSource.addEventListener("failed", (e) => {
+             const data = JSON.parse(e.data);
+             document.getElementById("status").textContent =
+               `❌ Booking failed: ${data.error}`;
+             eventSource.close();
+           });
+
+           eventSource.addEventListener("progress", (e) => {
+             const data = JSON.parse(e.data);
+             document.getElementById("status").textContent =
+               `Processing: ${data.message}`;
+           });
+
+           eventSource.onerror = (error) => {
+             console.error("SSE error:", error);
+             eventSource.close();
+           };
+         }
+
+         // Auto-run on page load
+         bookTicket();
+       </script>
+     </body>
+   </html>
+   ```
+
+**Expected Output**:
+- ✅ Client can connect to SSE endpoint
+- ✅ Real-time status updates delivered (no polling)
+- ✅ Automatic reconnection on disconnect (EventSource built-in)
+- ✅ Multiple clients can listen to same job
+- ✅ Works with multiple API instances (QueueEvents broadcasts to all)
+
+**Validation**:
 ```bash
-# Test rate limit
-curl -X POST http://localhost:3000/api/v1/bookings \
-  -H "Authorization: Bearer $TOKEN" \
-  -d '{"eventId": "..."}'
-# Repeat 11 times
-# 11th request: 429 Too Many Requests ✅
+# Test SSE with curl
+curl -N http://localhost:3000/api/v1/bookings/status/YOUR_JOB_ID
 
-# Test queue backpressure (under load)
-npm run test:load
-# Should see: Very few 503 responses during peak
+# Should stream events:
+# event: connected
+# data: {"jobId": "..."}
+#
+# event: confirmed
+# data: {"success": true, "bookingId": "..."}
+
+# Test with multiple API instances
+docker compose up -d --scale server=3
+
+# Create booking, connect SSE
+# Should work regardless of which API instance serves SSE
 ```
 
-**Time Estimate:** 2-3 hours
-**Difficulty:** Medium (new concepts)
-
-**Key Learning:** Rate limiting is like request throttling - prevents one user from overwhelming the system.
+**Files Modified/Created**:
+- `apps/api/src/routes/bookings.ts` (add SSE endpoint)
+- `apps/api/src/lib/connectionManager.ts` (NEW - track connections)
+- `examples/sse-client.html` (NEW - browser example)
 
 ---
 
-### **Milestone 8: Circuit Breaker - Graceful Redis Failure**
+### **Milestone 8: Robust SSE - "Fast Worker" Race Condition Fix**
 
-**Objective:** When Redis fails, fail fast (503) instead of hanging.
+**Objective**: Handle the race condition where worker finishes before client connects to SSE, ensuring clients always receive final status.
 
-** Tasks:**
-1. **Install Circuit Breaker Library**:
+**The Problem**:
+```
+Timeline:
+  0ms:  Client POST /book → API creates job → API returns 202
+ 10ms:  Worker picks up job → Processes in 10ms → Publishes "completed"
+ 50ms:  Client receives 202 → Starts SSE connection
+ 60ms:  Client subscribes to events
+  BUG: The "completed" event was at 10ms, subscription at 60ms
+       → Client waits forever
+```
+
+**The Solution**: Check job state BEFORE subscribing. If already completed, send result immediately.
+
+**Tasks**:
+
+1. **Check State Before Subscribing**
+
+   Update `apps/api/src/routes/bookings.ts`:
+   ```typescript
+   import { bookingQueue } from "@ticket-hive/lib";
+
+   router.get("/status/:jobId", async (req, res) => {
+     const { jobId } = req.params;
+
+     // Set SSE headers
+     res.writeHead(200, {
+       "Content-Type": "text/event-stream",
+       "Cache-Control": "no-cache",
+       "Connection": "keep-alive",
+       "X-Accel-Buffering": "no",
+     });
+
+     // 1. Check current job state IMMEDIATELY
+     const job = await bookingQueue.getJob(jobId);
+
+     if (!job) {
+       res.write(`event: error\ndata: {"message": "Job not found"}\n\n`);
+       return res.end();
+     }
+
+     // 2. If already completed, send result immediately
+     if (job.returnvalue) {
+       const result = job.returnvalue;
+       if (result.success) {
+         res.write(`event: confirmed\ndata: ${JSON.stringify(result)}\n\n`);
+       } else {
+         res.write(`event: failed\ndata: ${JSON.stringify(result)}\n\n`);
+       }
+       return res.end();
+     }
+
+     // 3. If failed, send failure reason
+     if (job.failedReason) {
+       res.write(
+         `event: failed\ndata: ${JSON.stringify({ error: job.failedReason })}\n\n`
+       );
+       return res.end();
+     }
+
+     // 4. Only subscribe if job is still active
+     const state = await job.getState();
+     res.write(
+       `event: ${state}\ndata: ${JSON.stringify({ status: state })}\n\n`
+     );
+
+     // Now subscribe to QueueEvents for updates
+     const queueEvents = new QueueEvents("booking", { connection: redis });
+
+     const onCompleted = ({ jobId: completedId, returnvalue }: any) => {
+       if (completedId === jobId) {
+         res.write(
+           `event: confirmed\ndata: ${JSON.stringify(returnvalue)}\n\n`
+         );
+         res.end();
+         cleanup();
+       }
+     };
+
+     const onFailed = ({ jobId: failedId, failedReason }: any) => {
+       if (failedId === jobId) {
+         res.write(
+           `event: failed\ndata: ${JSON.stringify({ error: failedReason })}\n\n`
+         );
+         res.end();
+         cleanup();
+       }
+     };
+
+     queueEvents.on("completed", onCompleted);
+     queueEvents.on("failed", onFailed);
+
+     const cleanup = () => {
+       queueEvents.off("completed", onCompleted);
+       queueEvents.off("failed", onFailed);
+       queueEvents.close();
+     };
+
+     req.on("close", cleanup);
+   });
+   ```
+
+2. **Test the Race Condition**
+
+   Create `tests/test-fast-worker.ts`:
+   ```typescript
+   import { bookingQueue } from "@ticket-hive/lib";
+   import { BookingJobData } from "@ticket-hive/types";
+
+   /**
+    * Test: Worker finishes before client connects
+    *
+    * Expected: Client still receives result immediately
+    */
+   async function testFastWorker() {
+     const jobData: BookingJobData = {
+       userId: "test-user",
+       eventId: "test-event",
+       timestamp: Date.now(),
+     };
+
+     // Create job
+     const job = await bookingQueue.add("process-booking", jobData);
+     console.log("Job created:", job.id);
+
+     // Wait for worker to complete (assume fast worker)
+     await new Promise((resolve) => setTimeout(resolve, 2000));
+
+     // Now "client" connects to SSE (late)
+     console.log("Connecting to SSE (late)...");
+
+     const response = await fetch(
+       `http://localhost:3000/api/v1/bookings/status/${job.id}`
+     );
+
+     // Should immediately receive completed event
+     const reader = response.body?.getReader();
+     const decoder = new TextDecoder();
+
+     if (reader) {
+       const { value } = await reader.read();
+       const text = decoder.decode(value);
+       console.log("Received:", text);
+
+       if (text.includes("event: confirmed")) {
+         console.log("✅ Test passed: Received completed event immediately");
+       } else {
+         console.log("❌ Test failed: Did not receive completed event");
+       }
+     }
+
+     process.exit(0);
+   }
+
+   testFastWorker();
+   ```
+
+**Expected Output**:
+- ✅ Client receives status even if worker finished before connection
+- ✅ No hanging connections waiting for missed events
+- ✅ Works reliably from 10ms to 10s processing times
+- ✅ Handles network delays, slow clients, and retries
+
+**Validation**:
 ```bash
-npm install opossis # BullMQ uses this internally
+# Manual test
+# 1. Create booking → get jobId
+# 2. Wait 2 seconds (let worker complete)
+# 3. Connect to SSE endpoint
+# Expected: Immediate "confirmed" event (no waiting)
+
+# Automated test
+node --experimental-transform-types tests/test-fast-worker.ts
+# Should output: "✅ Test passed"
 ```
 
-2. **Create Circuit Breaker** (`packages/lib/src/redis.ts`):
-```typescript
-import CircuitBreaker from 'opossum';
+**Files Modified/Created**:
+- `apps/api/src/routes/bookings.ts` (add state check)
+- `tests/test-fast-worker.ts` (NEW - race condition test)
 
-const redisCircuitBreaker = new CircuitBreaker(
-  async (operation: () => Promise<any>) => operation(),
-  {
-    timeout: 3000, // 3s timeout
-    errorThresholdPercentage: 50, // Open after 50% errors
-    resetTimeout: 30000, // Try again after 30s
-    rollingCountTimeout: 10000,
-    rollingCountBuckets: 10,
-  }
-);
+---
 
-redisCircuitBreaker.on('open', () => {
-  console.error('🔴 Circuit breaker OPEN - Redis is down');
-});
+### **Milestone 9: Production Features - Rate Limiting, Circuit Breakers, & Load Testing**
 
-redisCircuitBreaker.on('halfOpen', () => {
-  console.warn('🟡 Circuit breaker HALF-OPEN - Testing Redis');
-});
+**Objective**: Add production-grade resilience patterns and validate system under extreme load.
 
-redisCircuitBreaker.on('close', () => {
-  console.log('🟢 Circuit breaker CLOSED - Redis recovered');
-});
+**Tasks**:
 
-export async function callWithCircuitBreaker<T>(
-  operation: () => Promise<T>
-): Promise<T> {
-  return redisCircuitBreaker.fire(operation);
-}
-```
+1. **Rate Limiting Middleware**
 
-3. **Wrap Queue Operations**:
-```typescript
-// In queueService.ts
-export async function createBookingJob(data: BookingJobData) {
-  if (redisCircuitBreaker.opened) {
-    throw new AppError(
-      ErrorCode.REDIS_UNAVAILABLE,
-      'Queue temporarily unavailable'
-    );
-  }
-  
-  return await callWithCircuitBreaker(async () => {
-    const job = await bookingQueue.add('booking', data);
-    return job.id;
-  });
-}
-```
+   Install dependencies:
+   ```bash
+   npm install express-rate-limit
+   ```
 
-4. **Add to Error Codes**:
-```typescript
-// packages/lib/src/errors.ts
-REDIS_UNAVAILABLE: {
-  statusCode: 503,
-  message: 'Service temporarily unavailable. Please retry.'
-}
-```
+   Create `apps/api/src/middleware/rate-limit.ts`:
+   ```typescript
+   import rateLimit from "express-rate-limit";
+   import { redis } from "@ticket-hive/lib";
 
-**Validation:**
+   /**
+    * Rate Limiter: 10 requests per minute per user
+    *
+    * Prevents queue overflow and abuse.
+    */
+   export const bookingRateLimiter = rateLimit({
+     windowMs: 60 * 1000, // 1 minute
+     max: 10, // 10 requests per window
+     message: {
+       success: false,
+       error: {
+         code: "RATE_LIMIT_EXCEEDED",
+         message:
+           "Too many booking requests. Please try again in a moment.",
+       },
+     },
+     standardHeaders: true,
+     legacyHeaders: false,
+     // Use Redis for distributed rate limiting (multi-instance support)
+     store: new RedisStore({
+       client: redis,
+       prefix: "rl:booking:",
+     }),
+     // Rate limit by user ID (if authenticated)
+     keyGenerator: (req) => {
+       return req.user?.id || req.ip;
+     },
+   });
+   ```
+
+   Apply to booking endpoint:
+   ```typescript
+   // apps/api/src/routes/bookings.ts
+   import { bookingRateLimiter } from "../middleware/rate-limit.js";
+
+   router.post("/", verifyToken, bookingRateLimiter, async (req, res) => {
+     // ... booking logic
+   });
+   ```
+
+2. **Circuit Breaker for Redis**
+
+   Install dependencies:
+   ```bash
+   npm install opossum
+   ```
+
+   Update `packages/lib/src/redis.ts`:
+   ```typescript
+   import CircuitBreaker from "opossum";
+   import { env } from "./env.js";
+
+   /**
+    * Circuit Breaker Configuration
+    *
+    * Protects against cascading failures when Redis is down.
+    * Opens after 50% error rate, returns 503 immediately.
+    */
+   const circuitBreakerOptions = {
+     timeout: 3000, // 3 second timeout
+     errorThresholdPercentage: 50, // Open after 50% errors
+     resetTimeout: 30000, // Try again after 30 seconds
+     rollingCountTimeout: 10000, // 10 second window
+     rollingCountBuckets: 10,
+   };
+
+   export const redisCircuitBreaker = new CircuitBreaker(
+     async (operation: () => Promise<any>) => operation(),
+     circuitBreakerOptions
+   );
+
+   // Monitor circuit state
+   redisCircuitBreaker.on("open", () => {
+     console.error("🔴 Circuit breaker OPENED - Redis unavailable");
+   });
+
+   redisCircuitBreaker.on("halfOpen", () => {
+     console.warn("🟡 Circuit breaker HALF-OPEN - Testing Redis");
+   });
+
+   redisCircuitBreaker.on("close", () => {
+     console.log("🟢 Circuit breaker CLOSED - Redis healthy");
+   });
+   ```
+
+   Update `apps/api/src/services/queueService.ts`:
+   ```typescript
+   import { redisCircuitBreaker } from "@ticket-hive/lib";
+   import { AppError, ErrorCode } from "@ticket-hive/lib";
+
+   export async function createBookingJob(data: BookingJobData): Promise<string> {
+     // Check circuit breaker state
+     if (redisCircuitBreaker.opened) {
+       throw new AppError(
+         ErrorCode.SERVICE_UNAVAILABLE,
+         "Queue temporarily unavailable. Please try again later."
+       );
+     }
+
+     // Execute with circuit breaker protection
+     return await redisCircuitBreaker.fire(async () => {
+       const validatedData = BookingJobSchema.parse(data);
+       const jobId = `booking-${randomUUID()}`;
+
+       await bookingQueue.add("process-booking", validatedData, { jobId });
+
+       return jobId;
+     });
+   }
+   ```
+
+3. **Queue Depth Check**
+
+   Update `apps/api/src/services/queueService.ts`:
+   ```typescript
+   import { env } from "@ticket-hive/lib";
+
+   export async function createBookingJob(data: BookingJobData): Promise<string> {
+     // Check queue depth (prevent overload)
+     const queueDepth = await bookingQueue.count();
+
+     if (queueDepth > 1000) {
+       throw new AppError(
+         ErrorCode.QUEUE_FULL,
+         "System at capacity. Please try again in a moment."
+       );
+     }
+
+     // ... rest of logic
+   }
+   ```
+
+4. **Update Environment Configuration**
+
+   Update `packages/lib/src/env.ts`:
+   ```typescript
+   export const env = createEnv({
+     server: {
+       // ... existing config
+
+       // Rate limiting
+       RATE_LIMIT_WINDOW_MS: z.coerce.number().default(60000), // 1 min
+       RATE_LIMIT_MAX_REQUESTS: z.coerce.number().default(10),
+
+       // Circuit breaker
+       CIRCUIT_BREAKER_TIMEOUT: z.coerce.number().default(3000),
+       CIRCUIT_BREAKER_ERROR_THRESHOLD: z.coerce.number().default(50),
+       CIRCUIT_BREAKER_RESET_TIMEOUT: z.coerce.number().default(30000),
+
+       // Queue depth
+       REDIS_QUEUE_MAX_DEPTH: z.coerce.number().default(1000),
+     },
+     runtimeEnv: process.env,
+   });
+   ```
+
+5. **Comprehensive Error Handling**
+
+   Update `packages/lib/src/errors.ts`:
+   ```typescript
+   export const ErrorCode = {
+     // ... existing codes
+     RATE_LIMIT_EXCEEDED: "RATE_LIMIT_EXCEEDED",
+     SERVICE_UNAVAILABLE: "SERVICE_UNAVAILABLE",
+     QUEUE_FULL: "QUEUE_FULL",
+   } as const;
+   ```
+
+   Update `packages/lib/src/errorHandler.ts`:
+   ```typescript
+   export function handleError(error: unknown, res: Response) {
+     // ... existing error handling
+
+     if (error instanceof AppError) {
+       const statusMap: Record<string, number> = {
+         RATE_LIMIT_EXCEEDED: 429,
+         SERVICE_UNAVAILABLE: 503,
+         QUEUE_FULL: 503,
+         // ... existing mappings
+       };
+
+       const status = statusMap[error.code] || 500;
+
+       return res.status(status).json({
+         success: false,
+         error: {
+           code: error.code,
+           message: error.message,
+         },
+       });
+     }
+
+     // ... rest of error handling
+   }
+   ```
+
+6. **10K Load Testing**
+
+   Update `tests/load-test.ts`:
+   ```typescript
+   /**
+    * Level 3 Load Test - 10,000 Concurrent Requests
+    *
+    * Tests:
+    * - API response time <100ms
+    * - Zero timeouts
+    * - Rate limiting effectiveness
+    * - Circuit breaker behavior
+    * - Data integrity (no overbookings)
+    */
+
+   async function level3LoadTest() {
+     const concurrentRequests = 10000;
+     const event = await createEvent("Load Test Event", 100);
+
+     console.log(
+       `🚀 Starting Level 3 load test: ${concurrentRequests} requests`
+     );
+     console.log(`Event: ${event.id} (100 tickets)\n`);
+
+     const startTime = Date.now();
+     const promises: Promise<any>[] = [];
+
+     for (let i = 0; i < concurrentRequests; i++) {
+       promises.push(
+         createBooking(event.id).catch((error) => ({
+           error: error.message,
+           status: error.response?.status,
+         }))
+       );
+     }
+
+     const results = await Promise.allSettled(promises);
+     const duration = Date.now() - startTime;
+
+     // Analyze results
+     const successful = results.filter(
+       (r) => r.status === "fulfilled" && r.value.success
+     );
+     const rateLimited = results.filter(
+       (r) => r.status === "fulfilled" && r.value.status === 429
+     );
+     const queueFull = results.filter(
+       (r) => r.status === "fulfilled" && r.value.status === 503
+     );
+     const timeouts = results.filter((r) => r.status === "rejected");
+
+     console.log("📊 LEVEL 3 LOAD TEST RESULTS\n");
+     console.log(`Total Requests: ${concurrentRequests}`);
+     console.log(`Duration: ${duration}ms`);
+     console.log(`Avg Response Time: ${duration / concurrentRequests}ms`);
+     console.log(`\nAccepted (202): ${successful.length}`);
+     console.log(`Rate Limited (429): ${rateLimited.length}`);
+     console.log(`Queue Full (503): ${queueFull.length}`);
+     console.log(`Timeouts: ${timeouts.length}`);
+
+     // Wait for workers to process
+     console.log("\n⏳ Waiting for workers to process jobs...");
+     await new Promise((resolve) => setTimeout(resolve, 30000)); // 30s
+
+     // Check final bookings
+     const bookings = await getBookingCount(event.id);
+     console.log(`\n✅ Final Bookings: ${bookings}`);
+     console.log(`Expected: 100`);
+     console.log(`Data Integrity: ${bookings === 100 ? "✅ PASS" : "❌ FAIL"}`);
+   }
+   ```
+
+**Expected Output**:
+- ✅ Rate limiting enforced (429 after 10 requests/min)
+- ✅ Circuit breaker opens when Redis fails (503 immediately)
+- ✅ Queue depth check prevents overload (503 when >1000 jobs)
+- ✅ 10K load test: 0% timeouts, <100ms API response
+- ✅ Data integrity: Exactly 100 bookings
+
+**Validation**:
 ```bash
-# Test Redis failure
+# Test rate limiting
+for i in {1..15}; do
+  curl -X POST http://localhost:3000/api/v1/bookings \
+    -H "Authorization: Bearer $TOKEN" \
+    -H "Content-Type: application/json" \
+    -d '{"eventId": "EVENT_ID"}'
+  echo ""
+done
+# First 10: 202 Accepted
+# Next 5: 429 Too Many Requests
+
+# Test circuit breaker
 docker compose stop redis
-
 curl -X POST http://localhost:3000/api/v1/bookings \
   -H "Authorization: Bearer $TOKEN" \
-  -d '{"eventId": "..."}'
-# Expected: 503 Service Unavailable (immediately)
-# NOT: Hang indefinitely
+  -H "Content-Type: application/json" \
+  -d '{"eventId": "EVENT_ID"}'
+# Expected: 503 Service Unavailable (immediately, no hanging)
 
 docker compose start redis
-# After 30s: Circuit breaker closes, requests work again
+# Wait 30 seconds for circuit to close
+
+# Run 10K load test
+npm run test:load
+# Expected:
+# - Avg response: <100ms
+# - Timeouts: 0
+# - Final bookings: 100
 ```
 
-**Time Estimate:** 2-3 hours
-**Difficulty:** Medium (new pattern)
-
-**Key Learning:** Circuit breaker is like a kill switch - when Redis dies, immediately stop accepting requests instead of hanging.
+**Files Modified/Created**:
+- `apps/api/src/middleware/rate-limit.ts` (NEW - rate limiting)
+- `packages/lib/src/redis.ts` (add circuit breaker)
+- `packages/lib/src/env.ts` (add resilience config)
+- `packages/lib/src/errors.ts` (add error codes)
+- `packages/lib/src/errorHandler.ts` (handle new errors)
+- `apps/api/src/routes/bookings.ts` (apply rate limiting)
+- `apps/api/src/services/queueService.ts` (circuit breaker + queue depth)
+- `tests/load-test.ts` (update for 10K requests)
 
 ---
 
-### **Milestone 9: Integration Testing & Performance Tuning**
+### **Milestone 10: Separate BullMQ Dashboard Service**
 
-**Objective:** Validate system behavior under realistic load and tune configuration.
+**Objective**: Create a separate dashboard service for monitoring queues, decoupled from API service.
 
-** Tasks:**
-1. **Update Load Test** (`tests/load-test.ts`):
-   - Test full flow: POST → SSE → Completion
-   - Measure API response time (target: <100ms p95)
-   - Measure worker processing time (target: 200-500ms)
-   - Measure total booking time (target: <2s end-to-end)
-   - Count rate limit hits (should be minimal)
-   - Monitor circuit breaker state
+**Why Separate?**: Security. The dashboard exposes sensitive queue data and should NOT be publicly accessible. Only start it when needed for debugging.
 
-2. **Run 10K Request Test**:
-```bash
-npm run test:load -- --requests=10000
-```
+**Tasks**:
 
-3. **Expected Results**:
-```
-📊 LOAD TEST RESULTS - Level 3 Production
+1. **Dashboard Service**
 
-Total Requests: 10000
-API Response Time: 45ms avg, 95ms p95 ✅
-Worker Processing: 350ms avg ✅
-Time to Complete: 1.2s avg ✅
+   Install dependency:
+   ```bash
+   npm install @bull-board/express @bull-board/api
+   ```
 
-Bookings Created: 100 ✅
-Rate Limited: 5 (0.05%) ✅
-503 Errors: 0 ✅
-Timeouts: 0 ✅
+   Create `apps/dashboard/src/index.ts`:
+   ```typescript
+   import express from "express";
+   import { createBullBoard } from "@bull-board/api";
+   import { BullMQAdapter } from "@bull-board/api/bullMQAdapter";
+   import { ExpressAdapter } from "@bull-board/express";
+   import { bookingQueue } from "@ticket-hive/lib";
+   import { env } from "@ticket-hive/lib";
 
-Version Conflicts: 12 retries (12% of successful) ⚠️
-→ Action: Consider increasing WORKER_MAX_RETRIES to 5
-```
+   /**
+    * BullMQ Dashboard Service
+    *
+    * SECURITY WARNING:
+    * - This service exposes sensitive queue data
+    * - Only run in development or behind VPN
+    * - In production, use external monitoring instead
+    */
 
-4. **Configuration Tuning**:
-   - If conflict rate > 10%: Increase `WORKER_MAX_RETRIES`
-   - If queue depth > 500: Increase `WORKER_CONCURRENCY`
-   - If API response > 100ms: Check rate limiter performance
-   - If worker processing > 1s: Check database indexes
+   const app = express();
+   const serverAdapter = new ExpressAdapter();
+   serverAdapter.setBasePath("/");
 
-5. **Document Performance Results** (`docs/level3-performance.md`):
-   - Level 2 vs Level 3 comparison
-   - Configuration used
-   - Bottlenecks identified
-   - Tuning recommendations
+   createBullBoard({
+     queues: [new BullMQAdapter(bookingQueue)],
+     serverAdapter: serverAdapter,
+   });
 
-**Validation:**
-```bash
-# Check metrics
-docker compose exec redis redis-cli INFO | grep -A 5 "keyspace"
-# Should show reasonable memory usage
+   app.use("/", serverAdapter.getRouter());
 
-# Monitor version conflicts
-# Look for "EVENT_SOLD_OUT_OR_CONFLICT" in worker logs
-docker compose logs worker | grep "CONFLICT" | wc -l
-# Should be < 5% of successful bookings
-```
+   const PORT = 3001;
+   app.listen(PORT, () => {
+     console.log(`📊 BullMQ Dashboard running at http://localhost:${PORT}`);
+     console.log("⚠️  WARNING: For development use only!");
+   });
+   ```
 
-**Time Estimate:** 3-4 hours
-**Difficulty:** Hard (requires analysis and tuning)
+   Create `apps/dashboard/package.json`:
+   ```json
+   {
+     "name": "@ticket-hive/dashboard",
+     "version": "1.0.0",
+     "type": "module",
+     "scripts": {
+       "dev": "node --watch --experimental-transform-types --env-file=../../.env.local ./src/index.ts",
+       "build": "tsc --noEmit",
+       "start": "node --experimental-transform-types ./src/index.ts"
+     },
+     "dependencies": {
+       "@ticket-hive/lib": "*",
+       "@bull-board/api": "^5.0.0",
+       "@bull-board/express": "^5.0.0",
+       "express": "^4.18.2"
+     }
+   }
+   ```
 
-**Key Learning:** Production systems need tuning based on metrics, not assumptions.
+2. **Docker Service (Optional)**
 
----
+   Update `compose.yaml`:
+   ```yaml
+   services:
+     # ... existing services
 
-### **Milestone 10: Separate Dashboard & Observability**
+     dashboard:
+       build:
+         context: .
+         target: development
+       command: node --experimental-transform-types --env-file=/run/secrets/.env.docker apps/dashboard/src/index.ts
+       ports:
+         - "3001:3001"
+       volumes:
+         - ./apps/dashboard/src:/usr/src/app/apps/dashboard/src
+         - ./packages:/usr/src/app/packages
+         - ./secrets/.env.docker:/run/secrets/.env.docker:ro
+       environment:
+         PORT: 3001
+       depends_on:
+         - redis
+       profiles:
+         - monitoring  # Only start when explicitly requested
+       restart: unless-stopped
+   ```
 
-**Objective:** Create monitoring UI and structured logging.
+3. **Security Documentation**
 
-** Tasks:**
-1. **Create Dashboard Service** (`apps/dashboard/src/index.ts`):
-```typescript
-// Mount BullMQ dashboard at root
-import { ExpressAdapter } from '@bull-board/express';
-import { BullMQAdapter } from '@bull-board/api/bullMQAdapter';
+   Create `docs/dashboard-security.md`:
+   ```markdown
+   # BullMQ Dashboard Security
 
-const serverAdapter = new ExpressAdapter();
-serverAdapter.setBasePath('/');
+   ## ⚠️ IMPORTANT SECURITY NOTICE
 
-createBullBoard({
-  queues: [new BullMQAdapter(bookingQueue)],
-  serverAdapter,
-});
+   The BullMQ dashboard exposes:
+   - Job data (user IDs, event IDs, etc.)
+   - Queue metrics
+   - Worker performance
+   - Failed job details
 
-app.use('/', serverAdapter.getRouter());
-```
+   ## Development Use
 
-2. **Docker Service Setup** (`compose.yaml`):
-```yaml
-dashboard:
-  build:
-    context: .
-    target: development
-  ports:
-    - "3001:3001"
-  depends_on:
-    - redis
-  profiles:
-    - monitoring  # Only starts with --profile monitoring
-```
+   Start dashboard locally:
+   \`\`\`bash
+   # Option 1: Docker (recommended)
+   docker compose --profile monitoring up -d dashboard
 
-3. **Add Authentication**:
-```typescript
-app.use(verifyJWT, requireAdmin);
-```
+   # Option 2: Local
+   cd apps/dashboard
+   npm run dev
+   \`\`\`
 
-4. **Add Structured Logging** (optional but recommended):
-```bash
-npm install pino pino-pretty
-```
+   Access: http://localhost:3001
 
-```typescript
-import pino from 'pino';
+   ## Production Recommendations
 
-const logger = pino({
-  level: process.env.LOG_LEVEL || 'info',
-  transport: {
-    target: 'pino-pretty',
-    options: { colorize: true }
-  }
-});
+   **Option 1: Don't deploy it**
+   - Use external monitoring (DataDog, New Relic) instead
+   - Safer and more feature-rich
 
-// Usage
-logger.info({ jobId, userId }, 'Booking job created');
-logger.warn({ jobId, attempts }, 'Version conflict, retrying');
-logger.error({ jobId, error }, 'Booking job failed');
-```
+   **Option 2: Deploy with auth**
+   - Add authentication middleware
+   - Restrict to VPN/internal network only
+   - Use environment-based feature flag
 
-5. **Add Metrics Collection**:
-```typescript
-// Track queue depth gauge
-setInterval(async () => {
-  const waiting = await bookingQueue.getWaitingCount();
-  const active = await bookingQueue.getActiveCount();
-  metrics.gauge('queue.depth', waiting + active);
-}, 5000);
+   **Option 3: On-demand only**
+   - Only start for debugging sessions
+   - Stop immediately after use
+   - Never expose publicly
 
-// Track processing time histogram
-const start = Date.now();
-await processBooking(job);
-metrics.histogram('worker.processing_time', Date.now() - start);
+   ## Example: Adding Basic Auth
 
-// Track conflict counter
-metrics.counter('booking.version_conflict', 1);
-```
+   \`\`\`typescript
+   import basicAuth from "express-basic-auth";
 
-**Validation:**
+   app.use(
+     basicAuth({
+       users: { admin: process.env.DASHBOARD_PASSWORD! },
+       challenge: true,
+     })
+   );
+   \`\`\`
+   ```
+
+**Expected Output**:
+- ✅ Dashboard accessible at `http://localhost:3001`
+- ✅ Shows queue depth, job status, processing times
+- ✅ Does NOT start by default (opt-in with `--profile monitoring`)
+- ✅ API service does NOT mount dashboard
+- ✅ Security warnings documented
+
+**Validation**:
 ```bash
 # Start dashboard explicitly
 docker compose --profile monitoring up -d dashboard
 
 # Access dashboard
-curl http://localhost:3001
-# Should show BullMQ queue status
+open http://localhost:3001
 
-# Verify API doesn't mount dashboard
+# Should show:
+# - Booking queue status
+# - Active jobs
+# - Completed jobs
+# - Failed jobs
+# - Worker metrics
+
+# Verify API does NOT have dashboard
 curl http://localhost:3000/admin/queues
-# Should return 404
+# Expected: 404 Not Found
 
-# Stop monitoring
+# Stop monitoring services
 docker compose --profile monitoring down
 ```
 
-**Production Recommendation**:
-```yaml
-# In production, disable dashboard or restrict to internal network
-services:
-  dashboard:
-    profiles:
-      - never  # Never start in production
-```
-
-**Time Estimate:** 3-4 hours
-**Difficulty:** Medium (mostly configuration)
-
-**Key Learning:** Dashboard is for debugging, not a production requirement. External monitoring (DataDog, New Relic) is usually better.
+**Files Modified/Created**:
+- `apps/dashboard/src/index.ts` (NEW - dashboard entry)
+- `apps/dashboard/package.json` (NEW)
+- `compose.yaml` (add dashboard service with profile)
+- `docs/dashboard-security.md` (NEW - security guide)
 
 ---
 
-## ✅ Production Success Criteria
+## ✅ Production Completion Criteria
 
-After completing all 4 milestones:
+After completing Milestones 7-10, your system should have:
+
+### Real-Time Updates
+- ✅ SSE delivers status updates (no polling needed)
+- ✅ "Fast Worker" edge case handled (state check before subscribe)
+- ✅ Works with multiple API instances (QueueEvents)
+- ✅ Auto-reconnection on disconnect
+
+### Resilience
+- ✅ Rate limiting enforced (10 req/min per user)
+- ✅ Circuit breaker returns 503 when Redis down (hard fail, no degradation)
+- ✅ Queue depth check prevents overload
+- ✅ Comprehensive error handling with user-friendly messages
+
+### Monitoring
+- ✅ BullMQ dashboard available (opt-in, secured)
+- ✅ Metrics tracked: queue depth, processing time, conflict rate
+- ✅ Circuit breaker state changes logged
+
+### Performance
+- ✅ 10K concurrent requests handled
+- ✅ 0% timeout rate
+- ✅ API response <100ms
+- ✅ Worker processing 200-500ms avg
+- ✅ Zero overbookings
+
+### Security
+- ✅ Dashboard not exposed publicly
+- ✅ Rate limiting prevents abuse
+- ✅ Circuit breaker prevents cascading failures
+
+---
+
+## 📊 Production Metrics
+
+| Metric | Target | Validation Method |
+|--------|--------|-------------------|
+| API Response Time (p95) | <100ms | Load test timing |
+| API Response Time (p99) | <150ms | Load test timing |
+| Worker Processing Time | 200-500ms | BullMQ dashboard |
+| Queue Depth Under Load | <50 avg | BullMQ dashboard |
+| Timeout Rate | 0% | Load test results |
+| Rate Limit Effectiveness | 100% | Manual test (15 rapid requests) |
+| Circuit Breaker Opens | Within 3s | Redis stop test |
+| Data Integrity | 100% | Database verification |
+| SSE Delivery Rate | 100% | Fast worker test |
+
+---
+
+## 🎓 Production Demo Script
+
+After completing production hardening:
 
 ```bash
+# 1. Show all services running
+docker compose ps
+# Should show: db, redis, server (API), worker, (optional: dashboard)
+
+# 2. Start dashboard for monitoring
+docker compose --profile monitoring up -d dashboard
+open http://localhost:3001
+
+# 3. Create test event (100 tickets)
+# ... (same as MVP demo)
+
+# 4. Create booking with SSE
+node --experimental-transform-types examples/sse-client.html
+# Should show real-time updates in browser
+
+# 5. Test rate limiting
+for i in {1..15}; do
+  curl -X POST http://localhost:3000/api/v1/bookings \
+    -H "Authorization: Bearer $TOKEN" \
+    -d '{"eventId": "EVENT_ID"}'
+done
+# First 10: 202 Accepted
+# Next 5: 429 Too Many Requests
+
+# 6. Test circuit breaker
+docker compose stop redis
+curl -X POST http://localhost:3000/api/v1/bookings \
+  -H "Authorization: Bearer $TOKEN" \
+  -d '{"eventId": "EVENT_ID"}'
+# Expected: 503 Service Unavailable (immediately)
+
+docker compose start redis
+# Wait 30 seconds for circuit to close
+
+# 7. Run 10K load test
 npm run test:load
-```
+# Should show:
+# - Total Requests: 10,000
+# - Avg Response: <100ms
+# - Timeouts: 0
+# - Rate Limited: ~9,000 (expected)
+# - Accepted: ~100 (expected)
+# - Final Bookings: 100 ✅
 
-**Expected Output:**
-```
-📊 LOAD TEST RESULTS - Level 3 Production
-
-📈 Performance Metrics:
-  Total Requests: 10000
-  API Response: 45ms avg, 95ms p95 ⚡
-  Worker Processing: 350ms avg
-  Timeouts: 0 ✅
-  Rate Limited: 12 (< 1%) ✅
-  503 Errors: 0 ✅
-
-🎟️  Data Integrity:
-  Bookings Created: 100 ✅
-  No Overbookings: Confirmed ✅
-  Final Version: 100 ✅
-
-🛡️  Protection:
-  Rate Limiter: Active ✅
-  Circuit Breaker: Closed ✅
-  Queue Backpressure: Functional ✅
-
-📡 Observability:
-  Dashboard: Available at :3001 ✅
-  Structured Logs: Enabled ✅
-  Metrics: Collected ✅ (conflict rate: 3%)
-
-✅ PRODUCTION READY: Ready for flash sale traffic!
+# 8. Show dashboard metrics
+open http://localhost:3001
+# Review:
+# - Queue depth stayed low
+# - Worker processed efficiently
+# - No failed jobs (or minimal retries)
 ```
 
 ---
 
-## 📊 Before vs After Production Hardening
+## 🚨 Production Pitfalls to Avoid
 
-| Aspect | MVP | Production | Impact |
-|--------|-----|------------|--------|
-| **API Abuse Protection** | None | Rate limit 10/min | Prevents one user from taking all tickets |
-| **Redis Failure** | Hangs | 503 immediately | Database protected from overload |
-| **Queue Memory** | No limit | Max 1000 jobs | Prevents Redis OOM |
-| **Monitoring** | Redis CLI | Dashboard + metrics | Real-time visibility |
-| **Configuration** | Hardcoded | Environment vars | No code changes for tuning |
-| **Logging** | console.log | Structured logs | Debugging in production |
-
----
-
-## 🔧 Production Configuration Guide
-
-**Key Environment Variables:**
-
-```bash
-# Rate Limiting
-RATE_LIMIT_PER_USER=10          # requests per minute
-RATE_LIMIT_WINDOW_MS=60000      # 60 seconds
-REDIS_QUEUE_MAX_DEPTH=1000      # max waiting jobs
-
-# Retry Strategy
-WORKER_MAX_RETRIES=3            # give up after N tries
-WORKER_RETRY_DELAY_MS=100       # initial delay
-WORKER_RETRY_MAX_DELAY_MS=1000  # max delay (with jitter)
-WORKER_CONCURRENCY=5            # concurrent jobs per worker
-
-# Circuit Breaker
-CIRCUIT_BREAKER_TIMEOUT=3000          # 3s timeout
-CIRCUIT_BREAKER_ERROR_THRESHOLD=50   # 50% errors to open
-CIRCUIT_BREAKER_RESET_TIMEOUT=30000  # 30s reset
-
-# Redis
-REDIS_HOST=redis
-REDIS_PORT=6379
-# Redis password in production (optional in dev)
-```
-
-**Recommended Values by Traffic:**
-
-| Traffic Level | Concurrent Users | Recommended Config |
-|--------------|------------------|-------------------|
-| Development | 1-10 | Default (above) |
-| Staging | 100 | `WORKER_CONCURRENCY=3` |
-| Low Traffic | 1K | `WORKER_CONCURRENCY=5`, `RATE_LIMIT_PER_USER=20` |
-| Flash Sale | 10K | `WORKER_CONCURRENCY=10`, `REDIS_QUEUE_MAX_DEPTH=2000` |
-
-**How to Tune:**
-1. Run load test
-2. Identify bottleneck:
-   - API slow → Check rate limiter performance
-   - Worker slow → Increase `WORKER_CONCURRENCY`
-   - High conflicts → Increase `WORKER_MAX_RETRIES`
-   - Queue growing → Add more workers
-   - 503 errors → Increase `REDIS_QUEUE_MAX_DEPTH`
-3. Adjust environment variable
-4. Restart services
-5. Re-run test
+1. **Exposing dashboard publicly** - Major security risk
+2. **No rate limiting** - Queue overflow and abuse vectors
+3. **Graceful degradation** - Adds complexity, harder to reason about failures
+4. **Not testing Redis failures** - Circuit breaker untested until production incident
+5. **Polling instead of SSE** - Wastes resources, poor user experience
+6. **Not handling fast workers** - SSE clients hang indefinitely
+7. **Hardcoded limits** - Production tuning requires code changes
+8. **No cleanup on disconnect** - Memory leaks from orphaned SSE connections
 
 ---
 
-## 📞 Production Operations Guide
+## 📝 Production Implementation Checklist
 
-### **Common Scenarios**
+**Real-Time Updates**:
+- [ ] Milestone 7: SSE implementation
+- [ ] Test SSE with multiple clients
+- [ ] Test with multiple API instances
+- [ ] Verify auto-reconnection
 
-**Scenario 1: High Queue Depth**
-```bash
-# Check current depth
-docker compose exec redis redis-cli LLEN "bull:booking:waiting"
+**Edge Cases**:
+- [ ] Milestone 8: Fix "Fast Worker" race
+- [ ] Test late-joining clients
+- [ ] Verify state check logic
 
-# If > 1000 consistently:
-# 1. Scale workers
-docker compose up -d --scale worker=5
+**Resilience**:
+- [ ] Milestone 9: Add rate limiting
+- [ ] Implement circuit breaker
+- [ ] Add queue depth check
+- [ ] Update error handling
+- [ ] Run 10K load test
 
-# 2. Check for stuck jobs
-docker compose logs worker | grep "ERROR"
+**Monitoring**:
+- [ ] Milestone 10: Create dashboard service
+- [ ] Configure as opt-in (profile)
+- [ ] Document security considerations
+- [ ] Test dashboard shows metrics
 
-# 3. If still high, reduce rate limit
-echo "RATE_LIMIT_PER_USER=5" >> .env.docker
-```
-
-**Scenario 2: Circuit Breaker Open**
-```bash
-# Check logs
-docker compose logs api | grep "Circuit breaker OPEN"
-
-# 1. Check Redis health
-docker compose exec redis redis-cli ping
-
-# 2. Investigate Redis logs
-docker compose logs redis
-
-# 3. Once Redis recovers, wait 30s for circuit to close
-# 4. Monitor: docker compose logs api | grep "Circuit breaker CLOSED"
-```
-
-**Scenario 3: High Version Conflict Rate**
-```bash
-# Count conflicts
-docker compose logs worker | grep "EVENT_SOLD_OUT_OR_CONFLICT" | wc -l
-
-# If > 10% of successful bookings:
-# 1. Increase retries
-echo "WORKER_MAX_RETRIES=5" >> .env.docker
-
-# 2. Or increase concurrency
-echo "WORKER_CONCURRENCY=8" >> .env.docker
-
-# 3. Restart workers
-docker compose restart worker
-```
-
-**Scenario 4: Deploying Without Downtime**
-```bash
-# 1. Start new workers
-docker compose up -d --scale worker=5 --no-deps worker
-
-# 2. Wait for them to be ready
-docker compose logs worker | grep "listening"
-
-# 3. Stop old workers
-docker compose stop worker
-
-# 4. Scale down
-docker compose up -d --scale worker=3
-```
+**Final Validation**:
+- [ ] SSE delivers updates reliably
+- [ ] Rate limiting prevents abuse
+- [ ] Circuit breaker opens on Redis failure
+- [ ] Queue depth stays manageable
+- [ ] 10K load test passes
+- [ ] Zero overbookings
+- [ ] Dashboard secured
 
 ---
 
-## 🎯 Production Checklist
+## 🔗 Related Documents
 
-**Before Going Live:**
-- [ ] Rate limiting tested (confirmed 429 responses)
-- [ ] Circuit breaker tested (confirmed 503 on Redis down)
-- [ ] 10K load test passed (<100ms API response)
-- [ ] Queue depth stays < 500 under load
-- [ ] Version conflict rate < 5%
-- [ ] Dashboard accessible (if using)
-- [ ] Structured logging configured
-- [ ] Metrics collection working
-- [ ] Environment variables configured for production traffic
-- [ ] Alerts set up (queue depth, circuit breaker, conflict rate)
-- [ ] Runbook documented (this guide)
-- [ ] Team trained on operations
-
-**Security:**
-- [ ] Dashboard not exposed publicly (or VPN-protected)
-- [ ] Redis password set in production
-- [ ] Rate limits appropriate for traffic
-- [ ] Circuit breaker prevents database overload
+- **LEVEL_3_MVP_PLAN.md** - Foundation (Milestones 0-6)
+- **LEVEL_3_COMPLETE_PLAN.md** - Full plan (both MVP and Production)
+- **SPECS.md** - Original project requirements
 
 ---
 
-## 📞 Getting Help in Production
+## 🎯 Next Steps After Production
 
-**Metrics to Collect When Debugging:**
-```bash
-# Queue state
-docker compose exec redis redis-cli KEYS "bull:*" | wc -l
-docker compose exec redis redis-cli LLEN "bull:booking:waiting"
-docker compose exec redis redis-cli LLEN "bull:booking:active"
+**You now have a production-ready Level 3 system!**
 
-# Worker status
-docker compose logs worker --tail=100
+Consider these next steps:
 
-# API performance
-docker compose logs api --tail=100 | grep "202 Accepted"
+1. **Portfolio Presentation**
+   - Record demo video showing SSE, rate limiting, circuit breaker
+   - Write technical blog post explaining optimistic locking trade-offs
+   - Create architecture diagram for resume
 
-# Circuit breaker state
-docker compose logs api | grep "Circuit breaker"
+2. **Level 4 (Optional)**
+   - Idempotency (prevent duplicate bookings)
+   - Distributed locking with Redlock (seat selection)
+   - Advanced monitoring (metrics, alerting)
 
-# Rate limit hits
-docker compose logs api | grep "429" | wc -l
-```
+3. **Real Deployment**
+   - Deploy to cloud (AWS, GCP, Render)
+   - Set up CI/CD pipeline
+   - Configure production environment variables
+   - Monitor in production
 
-**When to Escalate:**
-- Queue depth > 5000 (system overload)
-- Circuit breaker stays open > 5 minutes (Redis issue)
-- Version conflict rate > 20% (tuning needed)
-- 503 errors > 1% of requests (capacity issue)
-
-**Team Communication:**
-- Document changes to environment variables
-- Share dashboard access (if using)
-- Train team on circuit breaker behavior
-- Set up PagerDuty/Opsgenie alerts
+4. **Interview Prep**
+   - Be ready to explain:
+     - Optimistic vs pessimistic locking trade-offs
+     - Why QueueEvents over raw Redis Pub/Sub
+     - Circuit breaker pattern and hard fail decision
+     - SSE race condition and solution
 
 ---
 
-**Plan Version:** 3.1 (Production Hardening)
-**Target:** MVP → Production-Ready
-**Goal:** Handle 10K+ concurrent users safely
+*Last updated: 2025-01-27*
+*Status: Ready for implementation after MVP complete*
