@@ -41,6 +41,16 @@ export const env = createEnv({
     JWT_SECRET: z.string().optional(),
     JWT_EXPIRATION: z.string().default("24H"),
     NODE_ENV: z.enum(["development", "production", "test"]).default("development"),
+
+    // Redis configuration
+    REDIS_HOST: z.string().default("localhost"),
+    REDIS_PORT: z.coerce.number().default(6379),
+    REDIS_PASSWORD: z.string().optional(),
+
+    // Worker configuration (MVP: simple values)
+    WORKER_CONCURRENCY: z.coerce.number().default(5),
+    WORKER_MAX_RETRIES: z.coerce.number().default(3),
+    WORKER_RETRY_DELAY_MS: z.coerce.number().default(100),
   },
   runtimeEnv: process.env,
   emptyStringAsUndefined: true,

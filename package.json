@@ -24,7 +24,9 @@
   "dependencies": {
     "@t3-oss/env-core": "^0.13.8",
     "bcryptjs": "^3.0.3",
+    "bullmq": "^5.65.0",
     "express": "^5.1.0",
+    "ioredis": "^5.8.2",
     "jsonwebtoken": "^9.0.2",
     "postgres": "^3.4.7",
     "zod": "^4.1.13"
@@ -32,6 +34,7 @@
   "devDependencies": {
     "@types/bcryptjs": "^3.0.0",
     "@types/express": "^5.0.5",
+    "@types/ioredis": "^4.28.10",
     "@types/jsonwebtoken": "^9.0.10",
     "turbo": "^2.6.1",
     "typescript": "^5.9.3"
