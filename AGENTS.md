@@ -16,7 +16,6 @@
 - **Database**: PostgreSQL (postgres.js driver)
 - **Authentication**: JWT with bcrypt hashing
 - **Containerization**: Docker & Docker Compose
-- **Testing**: Load testing with 1000 concurrent requests
 
 ### 📊 Current Implementation Level: Level 2
 
@@ -36,25 +35,30 @@ const events = await transaction`
 - ✅ 100% data integrity, zero overbookings
 - ✅ Simple implementation using built-in database features  
 - ⚠️ Lower throughput (requests serialize on locked rows)
-- ⚠️ 1-2% timeout rate under extreme load (statement_timeout: 5s)
+- ⚠️ Timeout handling under extreme load (statement_timeout: 5s)
 
 **Level 3 (In Progress)**: Queue-based async processing with BullMQ + Redis
 
-Level 3 implementation is now actively planned. The plan is split into two documents for progressive learning:
+**IMPORTANT**: The complete Level 3 specification and implementation plan is located at **`docs/level3/LEVEL_3_COMPLETE_PLAN.md`**. This document contains the full, detailed plan with all milestones (0-10).
+
+For easier learning and progressive implementation, the complete plan has been split into two simpler documents:
 
 **Document 1 - MVP Plan** (for frontend developers new to backend):
 - Start here: `docs/level3/LEVEL_3_MVP_PLAN.md`
-- Covers milestones 0-6: Core async booking flow
+- **Milestones 0-6**: Core async booking flow (extracted from complete plan)
 - Goal: Get async booking working end-to-end with <100ms response
 - Timeline: 1 week
 
 **Document 2 - Production Hardening** (operations & monitoring):
 - After MVP: `docs/level3/LEVEL_3_PRODUCTION_PLAN.md`
-- Covers milestones 7-10: Rate limiting, circuit breaker, dashboard
+- **Milestones 7-10**: Rate limiting, circuit breaker, dashboard (extracted from complete plan)
 - Goal: Make system production-ready for 10K+ concurrent users
 - Timeline: 1 week
 
-**Recommendation**: Begin with MVP plan if you're new to backend systems. The split approach helps you focus on core concepts before adding production complexity.
+**Recommendation**: 
+- Begin with MVP plan if you're new to backend systems
+- See the complete plan (`LEVEL_3_COMPLETE_PLAN.md`) for the full architecture context
+- The split approach helps you focus on core concepts before adding production complexity
 
 ---
 
@@ -113,8 +117,6 @@ tickets-hive/
 │   └── level3/
 │       ├── LEVEL_3_COMPLETE_PLAN.md    # Full Level 3 plan
 │       └── milestone-0-implementation-plan.md  # Milestone 0 plan
-├── tests/                     # Test suites
-│   └── load-test.ts          # 1000 concurrent request load test
 ├── secrets/                   # Docker secrets (mounted at runtime)
 │   ├── db_password.txt
 │   └── jwt_secret.txt
@@ -233,7 +235,7 @@ const sql = postgres({
    npm run dev  # Uses .env.local with direct values
 
 4. Verify Setup
-   npm run test:load  # Runs 1000 concurrent requests
+   # Test API endpoints manually or use your preferred testing method
 
 ✨ That's it! No manual secret creation required.
 ```
@@ -254,7 +256,6 @@ npm run dev            # Local development (no Docker)
 ```bash
 npm run build          # Type-check all packages with TypeScript
 npm run api:dev        # Start API server only (file watching)
-npm run test:load      # Run load test (requires services running)
 ```
 
 **Docker Operations:**
@@ -468,81 +469,16 @@ return await sql.begin(async (transaction) => {
  */
 ```
 
----
+**All generated code must be thoroughly commented for reader understanding**:
+- Critical sections with complex logic need detailed inline comments
+- Explain "why" not just "what" (especially for race condition prevention)
+- Database queries should explain what data is being fetched and why
+- Transaction blocks should document the rollback/commit behavior
+- Error handling should explain what each error code means in context
+- Complex algorithms should have step-by-step explanations
+- Always comment workarounds or non-obvious solutions
 
-## Testing Strategy
-
-### Load Test (`tests/load-test.ts`)
-
-**Purpose**: Verify zero overbookings under extreme concurrency
-
-**What it does**:
-1. Registers a test user (upgrades to admin)
-2. Creates event with 100 tickets using admin token
-3. Fires 1000 concurrent booking requests
-4. Validates results against database
-
-**Run it**:
-```bash
-docker compose up -d    # Must be running first
-npm run test:load       # Takes ~30-60 seconds
-```
-
-**Expected Output (Level 2)**:
-```
-📊 LOAD TEST RESULTS - Level 2 (Transaction + Timeout Handling)
-
-📈 Request Metrics:
-  Total Requests: 1000
-  Successful Bookings (201): 100 (10.0%)     ✅ Exactly as expected
-  Sold Out (409): 880-890 (88-89%)           ✅ Expected behavior
-  Timeouts (503): 10-20 (1-2%)               ⚠️  Acceptable under load
-  HTTP Success Rate: 98%                     ✅ Great!
-
-🎟️  Data Integrity:
-  Expected Bookings: 100
-  Actual Bookings: 100    ✅ Perfect match
-  Available Tickets: 0    ✅ No negative numbers
-
-✅ Race Condition Analysis:
-  🟢 RACE CONDITION: NONE ✅
-     - Exact match: 100 == 100
-     - No negative tickets: 0 >= 0
-```
-
-**Key Metrics to Monitor**:
-- **Actual Bookings** must equal **Expected Bookings** (100 == 100)
-- **Available Tickets** must never be negative
-- Timeout rate should be 1-2% (acceptable) not >20% (problematic)
-- Response time ~800-1500ms is normal for Level 2
-
-### Manual Testing Queries
-
-After load test, run these queries to verify data integrity:
-
-```sql
--- Verify exactly 100 bookings created
-SELECT COUNT(*) FROM bookings WHERE created_at > NOW() - INTERVAL '5 minutes';
-
--- Check no negative ticket counts
-SELECT name, total_tickets, available_tickets 
-FROM events 
-WHERE available_tickets < 0;
--- Should return 0 rows
-
--- Validate booking accuracy
-SELECT 
-  e.name,
-  e.total_tickets,
-  e.available_tickets,
-  COUNT(b.id) as actual_bookings,
-  (e.total_tickets - e.available_tickets) as expected_bookings
-FROM events e
-LEFT JOIN bookings b ON b.event_id = e.id AND b.status = 'CONFIRMED'
-WHERE e.available_tickets < 100  -- Find recently created test events
-GROUP BY e.id;
--- actual_bookings MUST equal expected_bookings
-```
+**Goal**: A junior developer should understand the code by reading comments without asking questions.
 
 ---
 
@@ -882,7 +818,7 @@ For frontend developers and backend beginners - focuses on core async concepts.
 ```
 Level 2 (Current):
 Client → API → Database (FOR UPDATE locks) → Response (201/409) (sync)
-        └─ 800-1500ms latency, 1-2% timeouts
+        └─ 800-1500ms latency, some timeouts under extreme load
 
 Level 3 MVP (Target):
 Client → API → Queue job → Response (202 Accepted) → Client
@@ -930,6 +866,36 @@ Both plans maintain the same architecture and design decisions - Production Plan
 
 ---
 
+## Communication Guidelines for AI Agents
+
+### When in Doubt, Ask!
+
+**Critical Instruction**: If any requirement, implementation detail, or user request is unclear or ambiguous, **you MUST ask for clarification** before proceeding. This includes:
+
+- Unclear user requirements or goals
+- Ambiguous specifications or acceptance criteria
+- Conflicting information between different documentation files
+- Unclear priority between multiple tasks
+- Questions about business logic or expected behavior
+- Uncertainty about architectural decisions
+- Any doubts that could lead to incorrect implementation
+
+**Examples of when to ask**:
+```
+❌ DON'T: Guess what the user wants
+❌ DON'T: Make assumptions about unclear requirements
+❌ DON'T: Proceed with implementation when specifications conflict
+
+✅ DO: "I see two possible approaches here. Which would you prefer?"
+✅ DO: "The spec mentions X but the current implementation does Y. Should I update the implementation?"
+✅ DO: "Can you clarify the expected behavior when [specific edge case] occurs?"
+✅ DO: "I found conflicting information in docs/SPECS.md and the AGENTS.md. Which should I follow?"
+```
+
+**Better to ask a question than to implement the wrong solution!**
+
+---
+
 ## Key Takeaways for AI Agents
 
 ### When Working on This Project
@@ -954,20 +920,21 @@ Both plans maintain the same architecture and design decisions - Production Plan
 - Password files must be read via `fs.readFileSync(env.POSTGRES_PASSWORD_FILE)`
 - Application should fail fast if secrets unavailable
 
-**5. Test Concurrency on Every Change**
-- Run `npm run test:load` after any booking-related changes
-- Verify: 100 bookings, 0 overbookings, available_tickets ≥ 0
-- If timeout rate >20%, the change breaks Level 2 assumptions
-
-**6. Documentation Comments Required**
+**5. Documentation Comments Required**
 - Every service method needs Level X implementation explanation
 - Document trade-offs, why specific patterns chosen
 - Reference the race condition the code prevents
 
-**7. Database First**
+**6. Database First**
 - Schema changes require updating `initializeDatabase()` in `packages/database/src/schema.ts`
 - Test schema initialization: `docker compose down -v && docker compose up -d`
 - Indexes on foreign keys for performance (user_id, event_id)
+
+**7. Thorough Code Documentation**
+- All critical sections must have detailed inline comments
+- Explain "why" not just "what" (especially race conditions)
+- Complex logic needs step-by-step explanations
+- Goal: Junior developers understand code by reading comments
 
 **8. Production-Ready Mindset**
 - Fails fast with clear error messages
@@ -984,7 +951,7 @@ Both plans maintain the same architecture and design decisions - Production Plan
 - ❌ Throwing generic `Error()` instead of `AppError` with specific codes
 - ❌ Forgetting to add indexes on new foreign key columns
 - ❌ Hardcoding credentials or environment-specific values
-- ❌ Not testing under concurrent load (race conditions only appear under load)
+- ❌ **Insufficient code comments** - Critical sections need thorough explanations for reader understanding
 
 ---
 
@@ -993,16 +960,15 @@ Both plans maintain the same architecture and design decisions - Production Plan
 **Specification Source**: Always start with **`docs/SPECS.md`** - it defines all levels and requirements.
 
 **File References**:
-- Architecture details: `README.md` (730 lines of comprehensive docs)
 - Specification: `docs/SPECS.md` (defines all levels 1-4)
-- Load test results: `tests/load-test.ts` (run for current performance)
+- Database queries: Check `packages/database/src/schema.ts` for schema and `packages/database/src/db.ts` for connection logic
 
-**Level 3 Implementation Plans**:
-- **MVP Plan** (start here): `docs/level3/LEVEL_3_MVP_PLAN.md` - Core async flow for learning
-- **Production Plan**: `docs/level3/LEVEL_3_PRODUCTION_PLAN.md` - Hardening & monitoring
-- Original plan (legacy): `docs/level3/LEVEL_3_COMPLETE_PLAN.md` - Superseded by split plans
+**Level 3 Architecture & Implementation Plans** (IMPORTANT):
+- **Complete Plan**: `docs/level3/LEVEL_3_COMPLETE_PLAN.md` contains ALL milestones 0-10 with full detail and complete architecture
+- **MVP Plan (milestones 0-6)**: `docs/level3/LEVEL_3_MVP_PLAN.md` - architecture details for core async booking flow
+- **Production Plan (milestones 7-10)**: `docs/level3/LEVEL_3_PRODUCTION_PLAN.md` - architecture details for rate limiting, circuit breaker, monitoring
 
-**Database queries**: Check `packages/database/src/schema.ts` for schema and `packages/database/src/db.ts` for connection logic.
+**Note**: The MVP and Production plans are extracted subsets of the complete plan, split for easier learning. For full architectural context, always refer to the **complete plan** (`LEVEL_3_COMPLETE_PLAN.md`).
 
 **Error handling flow**: See `packages/lib/src/errors.ts` for all error codes and `packages/lib/src/errorHandler.ts` for HTTP formatting.
 
@@ -1011,3 +977,5 @@ Both plans maintain the same architecture and design decisions - Production Plan
 ---
 
 *This guide should give you complete context for working effectively on the TicketHive project. When in doubt, check the detailed comments in source files—every critical section is extensively documented.*
+
+---
