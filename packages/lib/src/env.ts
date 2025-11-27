@@ -23,7 +23,7 @@ function readEnvValue(filePath?: string, directValue?: string): string {
   console.error("❌ Missing required environment configuration");
   console.error("💡 Solution options:");
   console.error("   1. Run 'npm run setup' to generate secrets automatically");
-  console.error("   2. Create .env.local file with POSTGRES_PASSWORD and JWT_SECRET values");
+  console.error("   2. Create .env.local file with POSTGRES_PASSWORD, JWT_SECRET, and REDIS_PASSWORD values");
   console.error("   3. Run 'npm run docker:dev' to use Docker mode with auto-generated secrets");
   throw new Error("No secret file or direct value provided. Run 'npm run setup' to generate secrets automatically.");
 }
@@ -45,6 +45,7 @@ export const env = createEnv({
     // Redis configuration
     REDIS_HOST: z.string().default("localhost"),
     REDIS_PORT: z.coerce.number().default(6379),
+    REDIS_PASSWORD_FILE: z.string().optional(),
     REDIS_PASSWORD: z.string().optional(),
 
     // Worker configuration (MVP: simple values)
@@ -70,5 +71,12 @@ export const getJwtSecret = (): string => {
   return readEnvValue(
     env.JWT_SECRET_FILE,
     env.JWT_SECRET
+  );
+};
+
+export const getRedisPassword = (): string => {
+  return readEnvValue(
+    env.REDIS_PASSWORD_FILE,
+    env.REDIS_PASSWORD
   );
 };

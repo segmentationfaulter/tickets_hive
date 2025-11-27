@@ -1,5 +1,5 @@
 import { Redis } from "ioredis";
-import { env } from "./env.js";
+import { env, getRedisPassword } from "./env.ts";
 
 /**
  * Shared Redis connection for BullMQ
@@ -16,7 +16,7 @@ import { env } from "./env.js";
 export const redis = new Redis({
   host: env.REDIS_HOST,
   port: env.REDIS_PORT,
-  ...(env.REDIS_PASSWORD ? { password: env.REDIS_PASSWORD } : {}),
+  password: getRedisPassword(),
   maxRetriesPerRequest: null, // Required for BullMQ
   retryStrategy(times) {
     const delay = Math.min(times * 50, 2000);

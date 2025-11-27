@@ -27,6 +27,7 @@ services:
     secrets:
       - db-password
       - jwt-secret
+      - redis-password
     volumes:
       - ./apps/api/src:/usr/src/app/apps/api/src
       - ./packages:/usr/src/app/packages
@@ -51,12 +52,15 @@ services:
   redis:
     image: redis:7-alpine
     restart: always
+    secrets:
+      - redis-password
     ports:
       - 6379:6379
     volumes:
       - redis-data:/data
+    command: sh -c "redis-server --requirepass $$(cat /run/secrets/redis-password)"
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ["CMD", "sh", "-c", "redis-cli -a $$(cat /run/secrets/redis-password) ping"]
       interval: 5s
       timeout: 3s
       retries: 5
@@ -68,3 +72,5 @@ secrets:
     file: secrets/db_password.txt
   jwt-secret:
     file: secrets/jwt_secret.txt
+  redis-password:
+    file: secrets/redis_password.txt

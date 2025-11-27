@@ -36,6 +36,16 @@ try {
     console.log("ℹ️  JWT secret already exists, skipping");
   }
 
+  // Generate Redis password if it doesn't exist
+  const redisPasswordFile = join(secretsDir, "redis_password.txt");
+  if (!existsSync(redisPasswordFile)) {
+    const redisPassword = randomBytes(32).toString("hex");
+    writeFileSync(redisPasswordFile, redisPassword, { mode: 0o600 }); // Read/write for owner only
+    console.log("✅ Generated secure Redis password");
+  } else {
+    console.log("ℹ️  Redis password already exists, skipping");
+  }
+
   console.log("\n🎉 Environment setup complete!");
   console.log("You can now run:");
   console.log("  npm run docker:dev  # For Docker development");
