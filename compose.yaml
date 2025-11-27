@@ -36,9 +36,9 @@ services:
       - db-password
     volumes:
       - db-data:/var/lib/postgresql/data
-    environment:
-      - POSTGRES_DB=tickets_hive
-      - POSTGRES_PASSWORD_FILE=/run/secrets/db-password
+    # Load environment variables from .env.docker file
+    env_file:
+      - .env.docker
     ports:
       - 5432:5432
     healthcheck:
