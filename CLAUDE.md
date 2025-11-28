@@ -8,7 +8,7 @@ Guidance for Claude Code when working with this repository.
 
 **Tech Stack**: PostgreSQL, Turborepo monorepo, Native Node.js 24 TypeScript (no transpilation), BullMQ/Redis (Level 3)
 
-**Current Status**: Level 2 complete, Level 3 Milestone 2 complete (event versioning), Milestone 3 in progress
+**Current Status**: Level 2 complete, Level 3 Milestone 3 complete (job queue architecture)
 
 ## Essential Commands
 
@@ -61,17 +61,26 @@ Pattern: Transaction with `FOR UPDATE` pessimistic lock
 - Trade-off: Lower throughput, 1-2% timeouts under extreme load (expected)
 - Statement timeout: 5 seconds (see `packages/database/src/db.ts`)
 
-### Level 3 Progress: Event Versioning (Milestone 2)
+### Level 3 Progress: Milestones 1-3
 
-**Status**: Complete
+**Milestone 1 (Redis & BullMQ Infrastructure)**: ✅ Complete
+- Redis service in Docker Compose with health checks
+- BullMQ and ioredis dependencies installed
+- Shared Redis connection (`packages/lib/src/redis.ts`)
+- Worker environment configuration in `packages/lib/src/env.ts`
 
-**Location**: `packages/database/src/schema.ts` (version column), all event/booking queries
-
-Pattern: Version field added to events table
+**Milestone 2 (Event Versioning)**: ✅ Complete
+- Version column added to events table (`packages/database/src/schema.ts`)
 - All events have `version` field (starts at 0, increments on each update)
 - Level 2 booking flow increments version but doesn't check it yet
 - Foundation for Milestone 5 optimistic locking implementation
-- No performance impact on Level 2 transactions
+
+**Milestone 3 (Job Queue Architecture)**: ✅ Complete
+- Job data schema with Zod validation (`packages/types/src/bookingJob.ts`)
+- BullMQ queue configuration (`packages/lib/src/queues.ts`)
+- Queue service for API (`apps/api/src/services/queueService.ts`)
+- Type-safe contract between API (producer) and Worker (consumer)
+- Ready for worker implementation in Milestone 4
 
 ### Error Handling
 
@@ -163,11 +172,21 @@ Run `npm run setup` to generate Docker secrets. Helper functions in `@ticket-hiv
 
 ## Level 3 Plan
 
-Next: Milestone 1 (Redis & BullMQ infrastructure)
+**Next**: Milestone 4 (Worker Service & Processing Architecture)
 
-Goal: Async queue-based architecture with 202 Accepted responses, background workers, SSE for status updates, optimistic locking
+**Goal**: Async queue-based architecture with 202 Accepted responses, background workers, SSE for status updates, optimistic locking
 
-See: `docs/level3/LEVEL_3_COMPLETE_PLAN.md` for complete roadmap
+**Completed** (Milestones 1-3):
+- ✅ Redis & BullMQ infrastructure
+- ✅ Event versioning foundation
+- ✅ Job queue architecture with type-safe contracts
+
+**Remaining** (Milestones 4-6 for MVP):
+- Milestone 4: Worker service skeleton
+- Milestone 5: Optimistic locking implementation in workers
+- Milestone 6: API migration to async (202 Accepted responses)
+
+See: `docs/level3/LEVEL_3_MVP_PLAN.md` for detailed implementation guide
 
 ## Project Goal
 
