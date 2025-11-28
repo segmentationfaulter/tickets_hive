@@ -148,3 +148,6 @@ secrets/
 
 # turbo
 .turbo/
+
+# My todos
+TODO.md

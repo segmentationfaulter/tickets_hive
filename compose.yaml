@@ -31,6 +31,26 @@ services:
     volumes:
       - ./apps/api/src:/usr/src/app/apps/api/src
       - ./packages:/usr/src/app/packages
+  worker:
+    build:
+      context: .
+      target: development
+    env_file:
+      - .env.docker
+    command: node --watch --experimental-transform-types apps/worker/src/index.ts
+    secrets:
+      - db-password
+      - jwt-secret
+      - redis-password
+    volumes:
+      - ./apps/worker/src:/usr/src/app/apps/worker/src
+      - ./packages:/usr/src/app/packages
+    depends_on:
+      redis:
+        condition: service_healthy
+      db:
+        condition: service_healthy
+    restart: unless-stopped
   db:
     image: postgres:16
     restart: always
@@ -60,7 +80,13 @@ services:
       - redis-data:/data
     command: sh -c "redis-server --requirepass $$(cat /run/secrets/redis-password)"
     healthcheck:
-      test: ["CMD", "sh", "-c", "redis-cli -a $$(cat /run/secrets/redis-password) ping"]
+      test:
+        [
+          "CMD",
+          "sh",
+          "-c",
+          "redis-cli -a $$(cat /run/secrets/redis-password) ping",
+        ]
       interval: 5s
       timeout: 3s
       retries: 5
