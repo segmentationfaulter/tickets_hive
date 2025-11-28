@@ -1,39 +1,145 @@
 import { Job } from "bullmq";
-import { BookingJobSchema, type BookingJobData } from "@ticket-hive/types";
+import {
+  BookingJobSchema,
+  type BookingJobData,
+  type BookingJobResult,
+} from "@ticket-hive/types";
+import { AppError, ErrorCode } from "@ticket-hive/lib";
+
+type Database = typeof import("@ticket-hive/database").sql;
 
 /**
- * Booking Job Processor (Skeleton - Milestone 4)
+ * Booking Job Processor Factory (Milestone 5)
  *
- * Processes booking jobs from the queue.
- * Current implementation: Validation and logging only.
+ * Creates a processor function with optimistic locking for high-concurrency booking.
  *
- * Milestone 5 will add:
- * - Database operations
- * - Optimistic locking with event versioning
- * - Actual booking creation
+ * Optimistic Locking Strategy:
+ * - Read event WITHOUT row locks (no blocking between workers)
+ * - Update WITH version check (WHERE version = expected)
+ * - If version changed → UPDATE returns 0 rows → throw VERSION_CONFLICT
+ * - BullMQ automatically retries (max 3 attempts, exponential backoff)
+ *
+ * vs Level 2 Pessimistic Locking:
+ * - Level 2: SELECT ... FOR UPDATE (blocks, lower throughput)
+ * - Level 3: SELECT + UPDATE WHERE version = X (no blocking, higher throughput)
+ *
+ * Trade-offs:
+ * ✅ Higher throughput (no lock contention)
+ * ✅ Better scalability (can add more workers)
+ * ⚠️  Version conflicts under high contention (acceptable, retries succeed)
+ *
+ * @param db - PostgreSQL client (postgres.js instance)
+ * @returns Processor function compatible with BullMQ Worker
  */
-export async function bookingProcessor(job: Job<BookingJobData>) {
-  console.log(`📦 Processing job ${job.id}...`);
+export function createBookingProcessor(db: Database) {
+  return async function bookingProcessor(
+    job: Job<BookingJobData>,
+  ): Promise<BookingJobResult> {
+    // Validate job data (defense in depth - API already validated)
+    const data = BookingJobSchema.parse(job.data);
+    const { userId, eventId } = data;
 
-  // Validate job data (defense in depth - already validated in API)
-  const data = BookingJobSchema.parse(job.data);
+    console.log(
+      `📦 Processing job ${job.id}: user=${userId}, event=${eventId}`,
+    );
 
-  console.log(`   User: ${data.userId}`);
-  console.log(`   Event: ${data.eventId}`);
-  console.log(`   Timestamp: ${new Date(data.timestamp).toISOString()}`);
+    // Execute booking in transaction (atomic event update + booking insert)
+    return await db.begin(async (tx) => {
+      // Step 1: Read event WITHOUT locking (optimistic approach)
+      // No FOR UPDATE = no blocking, other workers can read simultaneously
+      const events = await tx<
+        Array<{
+          id: string;
+          available_tickets: number;
+          version: number;
+        }>
+      >`
+        SELECT id, available_tickets, version
+        FROM events
+        WHERE id = ${eventId}
+      `;
 
-  // Simulate processing time (remove in M5)
-  await new Promise((resolve) => setTimeout(resolve, 100));
+      // Step 2: Validate event exists
+      if (events.length === 0) {
+        throw new AppError(ErrorCode.EVENT_NOT_FOUND);
+      }
 
-  // TODO (M5): Implement optimistic locking logic
-  // TODO (M5): Read event with current version
-  // TODO (M5): Attempt booking with version check
-  // TODO (M5): Retry on version conflict
+      const event = events[0]!;
+      const currentVersion = event.version;
 
-  console.log(`✅ Job ${job.id} validated successfully (skeleton processor)`);
+      // Step 3: Check ticket availability (business logic)
+      if (event.available_tickets <= 0) {
+        throw new AppError(ErrorCode.EVENT_SOLD_OUT);
+      }
 
-  return {
-    success: true,
-    message: "Skeleton processor - implementation pending M5",
+      // Step 4: Optimistic update with version check
+      // CRITICAL: WHERE version = ${currentVersion} prevents concurrent modifications
+      // If another worker updated event, version changed and UPDATE returns 0 rows
+      const updateResult = await tx<
+        Array<{
+          id: string;
+          available_tickets: number;
+          version: number;
+        }>
+      >`
+        UPDATE events
+        SET
+          available_tickets = available_tickets - 1,
+          version = version + 1,
+          updated_at = NOW()
+        WHERE id = ${eventId}
+          AND version = ${currentVersion}
+          AND available_tickets > 0
+        RETURNING id, available_tickets, version
+      `;
+
+      // Step 5: Detect version conflict
+      // 0 rows updated means either:
+      // - Version changed (conflict with another worker)
+      // - Tickets sold out between SELECT and UPDATE
+      // Both handled same way: retry
+      if (updateResult.length === 0) {
+        console.log(
+          `⚠️  Version conflict for event ${eventId} (expected v${currentVersion}). BullMQ will retry.`,
+        );
+        throw new AppError(ErrorCode.VERSION_CONFLICT);
+      }
+
+      const updatedEvent = updateResult[0]!;
+
+      // Step 6: Create booking record (same transaction)
+      // If this fails, event update rolls back (atomicity guarantee)
+      const bookingResult = await tx<
+        Array<{
+          id: string;
+          created_at: Date;
+        }>
+      >`
+        INSERT INTO bookings (user_id, event_id, status, created_at)
+        VALUES (${userId}, ${eventId}, 'CONFIRMED', NOW())
+        RETURNING id, created_at
+      `;
+
+      if (bookingResult.length === 0) {
+        throw new Error("INSERT INTO bookings returned no rows");
+      }
+
+      const booking = bookingResult[0]!;
+
+      console.log(
+        `✅ Booking created: ${booking.id} (${updatedEvent.available_tickets} tickets remaining, version ${updatedEvent.version})`,
+      );
+
+      // Step 7: Return job result (stored in Redis by BullMQ)
+      // Clients can retrieve via GET /api/v1/bookings/status/:jobId (Milestone 6)
+      return {
+        success: true,
+        bookingId: booking.id,
+        eventId: eventId,
+        remainingTickets: updatedEvent.available_tickets,
+        version: updatedEvent.version,
+        processedAt: new Date().toISOString(),
+      };
+    });
   };
 }

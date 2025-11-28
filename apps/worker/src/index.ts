@@ -1,7 +1,8 @@
 import { Worker } from "bullmq";
 import { redis } from "@ticket-hive/lib";
 import { env } from "@ticket-hive/lib";
-import { bookingProcessor } from "./processors/bookingProcessor.ts";
+import { sql } from "@ticket-hive/database";
+import { createBookingProcessor } from "./processors/bookingProcessor.ts";
 
 /**
  * Worker Service Entry Point
@@ -18,6 +19,9 @@ import { bookingProcessor } from "./processors/bookingProcessor.ts";
 console.log("🔧 Starting worker service...");
 console.log(`Concurrency: ${env.WORKER_CONCURRENCY}`);
 console.log(`Max retries: ${env.WORKER_MAX_RETRIES}`);
+
+// Create booking processor with database dependency injection
+const bookingProcessor = createBookingProcessor(sql);
 
 // Create BullMQ worker
 const worker = new Worker("booking", bookingProcessor, {

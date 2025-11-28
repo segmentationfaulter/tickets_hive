@@ -11,6 +11,7 @@ export const ErrorCode = {
   // Booking errors
   EVENT_NOT_FOUND: "EVENT_NOT_FOUND",
   EVENT_SOLD_OUT: "EVENT_SOLD_OUT",
+  VERSION_CONFLICT: "VERSION_CONFLICT",
   BOOKING_NOT_FOUND: "BOOKING_NOT_FOUND",
   BOOKING_ALREADY_CANCELLED: "BOOKING_ALREADY_CANCELLED",
 
@@ -60,6 +61,10 @@ export const ERROR_METADATA: Record<
   [ErrorCode.EVENT_SOLD_OUT]: {
     statusCode: 409,
     message: "Event is sold out",
+  },
+  [ErrorCode.VERSION_CONFLICT]: {
+    statusCode: 409,
+    message: "Event was modified by another process. Retrying...",
   },
   [ErrorCode.BOOKING_NOT_FOUND]: {
     statusCode: 404,
