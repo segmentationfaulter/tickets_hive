@@ -8,7 +8,7 @@ Guidance for Claude Code when working with this repository.
 
 **Tech Stack**: PostgreSQL, Turborepo monorepo, Native Node.js 24 TypeScript (no transpilation), BullMQ/Redis (Level 3)
 
-**Current Status**: Level 2 complete, Level 3 Milestone 3 complete (job queue architecture)
+**Current Status**: Level 2 complete, Level 3 Milestone 4 complete (worker service skeleton)
 
 ## Essential Commands
 
@@ -31,7 +31,7 @@ apps/
 │   ├── routes/         # auth.ts, events.ts, bookings.ts
 │   ├── services/       # Business logic (bookingService.ts has transaction logic)
 │   └── middleware/
-├── worker/src/         # Background jobs (Level 3 - empty for now)
+├── worker/src/         # Background job processor (bookingProcessor.ts)
 └── dashboard/          # Admin UI
 
 packages/
@@ -61,7 +61,7 @@ Pattern: Transaction with `FOR UPDATE` pessimistic lock
 - Trade-off: Lower throughput, 1-2% timeouts under extreme load (expected)
 - Statement timeout: 5 seconds (see `packages/database/src/db.ts`)
 
-### Level 3 Progress: Milestones 1-3
+### Level 3 Progress: Milestones 1-4
 
 **Milestone 1 (Redis & BullMQ Infrastructure)**: ✅ Complete
 - Redis service in Docker Compose with health checks
@@ -80,7 +80,16 @@ Pattern: Transaction with `FOR UPDATE` pessimistic lock
 - BullMQ queue configuration (`packages/lib/src/queues.ts`)
 - Queue service for API (`apps/api/src/services/queueService.ts`)
 - Type-safe contract between API (producer) and Worker (consumer)
-- Ready for worker implementation in Milestone 4
+
+**Milestone 4 (Worker Service & Processing Architecture)**: ✅ Complete
+- Worker service with BullMQ integration (`apps/worker/src/index.ts`)
+- Skeleton booking processor (`apps/worker/src/processors/bookingProcessor.ts`)
+- Configurable concurrency and retry settings
+- Event handlers for observability (completed, failed, stalled)
+- Graceful shutdown handling (SIGTERM/SIGINT)
+- Docker orchestration with separate worker container
+- Job validation with Zod schemas
+- Ready for optimistic locking implementation in Milestone 5
 
 ### Error Handling
 
@@ -172,17 +181,17 @@ Run `npm run setup` to generate Docker secrets. Helper functions in `@ticket-hiv
 
 ## Level 3 Plan
 
-**Next**: Milestone 4 (Worker Service & Processing Architecture)
+**Next**: Milestone 5 (Optimistic Locking Implementation)
 
 **Goal**: Async queue-based architecture with 202 Accepted responses, background workers, SSE for status updates, optimistic locking
 
-**Completed** (Milestones 1-3):
+**Completed** (Milestones 1-4):
 - ✅ Redis & BullMQ infrastructure
 - ✅ Event versioning foundation
 - ✅ Job queue architecture with type-safe contracts
+- ✅ Worker service skeleton with graceful shutdown
 
-**Remaining** (Milestones 4-6 for MVP):
-- Milestone 4: Worker service skeleton
+**Remaining** (Milestones 5-6 for MVP):
 - Milestone 5: Optimistic locking implementation in workers
 - Milestone 6: API migration to async (202 Accepted responses)
 
