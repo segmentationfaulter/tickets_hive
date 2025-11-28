@@ -51,15 +51,18 @@ export const bookingQueue = new Queue<BookingJobData, BookingJobResult>(
 /**
  * Graceful Shutdown Handler
  *
- * On SIGTERM (Docker stop, Ctrl+C):
+ * On SIGTERM (Docker stop) or SIGINT (Ctrl+C):
  * 1. Stop accepting new jobs
  * 2. Wait for in-flight jobs to complete
  * 3. Close queue connection
  *
  * This prevents job loss during deployment/restart
  */
-process.on("SIGTERM", async () => {
+const shutdown = async () => {
   console.log("🔄 Closing booking queue...");
   await bookingQueue.close();
   console.log("✅ Booking queue closed");
-});
+};
+
+process.on("SIGTERM", shutdown);
+process.on("SIGINT", shutdown);

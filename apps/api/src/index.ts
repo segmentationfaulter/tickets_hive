@@ -27,6 +27,24 @@ app.use("/auth", authRoutes);
 app.use("/api/v1/events", eventRoutes);
 app.use("/api/v1/bookings", bookingRoutes);
 
-app.listen(PORT, () => {
+const server = app.listen(PORT, () => {
   console.log(`App listening on port ${PORT}`);
 });
+
+// Graceful shutdown on SIGTERM (Docker/K8s) and SIGINT (Ctrl+C)
+async function shutdown() {
+  console.log("🛑 Shutting down API server gracefully...");
+
+  server.close(() => {
+    console.log("✅ HTTP server closed");
+  });
+
+  // Give in-flight requests 5 seconds to complete
+  setTimeout(() => {
+    console.error("⚠️  Forcing shutdown after timeout");
+    process.exit(1);
+  }, 5000);
+}
+
+process.on("SIGTERM", shutdown);
+process.on("SIGINT", shutdown);

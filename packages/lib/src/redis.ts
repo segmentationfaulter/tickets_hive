@@ -33,9 +33,12 @@ redis.on("error", (error) => {
   console.error("❌ Redis connection error:", error.message);
 });
 
-// Graceful shutdown
-process.on("SIGTERM", async () => {
+// Graceful shutdown on SIGTERM (Docker/K8s) and SIGINT (Ctrl+C)
+const shutdown = async () => {
   console.log("🔄 Closing Redis connection...");
   await redis.quit();
   console.log("✅ Redis connection closed");
-});
+};
+
+process.on("SIGTERM", shutdown);
+process.on("SIGINT", shutdown);
