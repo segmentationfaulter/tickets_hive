@@ -16,6 +16,7 @@ services:
     # Load environment variables from .env.docker file
     env_file:
       - .env.docker
+    command: node --experimental-transform-types --watch apps/api/src/index.ts
     ports:
       - 3000:3000
       - 9229:9229 # For debugging purpose
