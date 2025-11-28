@@ -8,7 +8,7 @@ Guidance for Claude Code when working with this repository.
 
 **Tech Stack**: PostgreSQL, Turborepo monorepo, Native Node.js 24 TypeScript (no transpilation), BullMQ/Redis (Level 3)
 
-**Current Status**: Level 2 complete, Level 3 Milestone 4 complete (worker service skeleton)
+**Current Status**: Level 2 complete, Level 3 Milestone 5 complete (optimistic locking in workers)
 
 ## Essential Commands
 
@@ -52,7 +52,7 @@ import { AppError, ErrorCode } from "@ticket-hive/lib";
 
 ## Key Implementation Details
 
-### Level 2: Pessimistic Locking
+### Level 2: Pessimistic Locking (Legacy - API only)
 
 **Location**: `apps/api/src/services/bookingService.ts:createBooking()`
 
@@ -60,8 +60,36 @@ Pattern: Transaction with `FOR UPDATE` pessimistic lock
 - Guarantees zero overbookings
 - Trade-off: Lower throughput, 1-2% timeouts under extreme load (expected)
 - Statement timeout: 5 seconds (see `packages/database/src/db.ts`)
+- **Note**: Still used by API routes. Will be replaced in Milestone 6 with async queue-based flow.
 
-### Level 3 Progress: Milestones 1-4
+### Level 3: Optimistic Locking (Workers)
+
+**Location**: `apps/worker/src/processors/bookingProcessor.ts:bookingProcessor()`
+
+Pattern: Version-based optimistic concurrency control
+- Read WITHOUT lock → Update WITH version check
+- Version conflict triggers BullMQ retry (max 3 attempts)
+- No blocking = higher throughput, better scalability
+- Trade-off: Occasional retries under high contention (acceptable)
+- How it works:
+  ```typescript
+  // 1. Read event (no lock)
+  const event = await tx`SELECT id, version, available_tickets WHERE id = ?`;
+  
+  // 2. Update with version constraint
+  const result = await tx`
+    UPDATE events 
+    SET tickets = tickets - 1, version = version + 1
+    WHERE id = ? AND version = ${event.version}  -- Atomic conflict check
+  `;
+  
+  // 3. Detect conflict
+  if (result.length === 0) {
+    throw VERSION_CONFLICT;  // BullMQ retries automatically
+  }
+  ```
+
+### Level 3 Progress: Milestones 1-5
 
 **Milestone 1 (Redis & BullMQ Infrastructure)**: ✅ Complete
 - Redis service in Docker Compose with health checks
@@ -89,7 +117,15 @@ Pattern: Transaction with `FOR UPDATE` pessimistic lock
 - Graceful shutdown handling (SIGTERM/SIGINT)
 - Docker orchestration with separate worker container
 - Job validation with Zod schemas
-- Ready for optimistic locking implementation in Milestone 5
+
+**Milestone 5 (Optimistic Locking Implementation)**: ✅ Complete
+- Full booking processor with optimistic locking (`apps/worker/src/processors/bookingProcessor.ts`)
+- Factory pattern with database dependency injection
+- Version-based conflict detection (no blocking locks)
+- Automatic retry via BullMQ (3 attempts, exponential backoff)
+- VERSION_CONFLICT error code for retryable errors (`packages/lib/src/errors.ts`)
+- Read → Validate → Update WITH version check → Create booking (atomic transaction)
+- Higher throughput than Level 2 (no FOR UPDATE blocking)
 
 ### Error Handling
 
@@ -98,8 +134,12 @@ Pattern: Transaction with `FOR UPDATE` pessimistic lock
 2. **Service Layer** → `AppError` with business codes
 3. **Route Layer** → HTTP responses (see `packages/lib/src/errorHandler.ts`)
 
-**Business Errors (4xx)**: Expected, don't retry (EVENT_NOT_FOUND, EVENT_SOLD_OUT)
-**Infrastructure Errors (5xx)**: Unexpected, can retry (STATEMENT_TIMEOUT, DATABASE_CONNECTION_ERROR)
+**Business Errors (4xx)**: Expected, don't retry in application logic
+- EVENT_NOT_FOUND, EVENT_SOLD_OUT (non-retryable business logic)
+- VERSION_CONFLICT (retryable concurrency conflict - BullMQ retries automatically)
+
+**Infrastructure Errors (5xx)**: Unexpected, can retry
+- STATEMENT_TIMEOUT, DATABASE_CONNECTION_ERROR
 
 **Always use user-friendly messages** - never expose technical details.
 
@@ -181,19 +221,23 @@ Run `npm run setup` to generate Docker secrets. Helper functions in `@ticket-hiv
 
 ## Level 3 Plan
 
-**Next**: Milestone 5 (Optimistic Locking Implementation)
+**Next**: Milestone 6 (API Migration to Async Queue-Based Processing)
 
-**Goal**: Async queue-based architecture with 202 Accepted responses, background workers, SSE for status updates, optimistic locking
+**Goal**: Complete async queue-based architecture with 202 Accepted responses, background workers, optimistic locking
 
-**Completed** (Milestones 1-4):
+**Completed** (Milestones 1-5):
 - ✅ Redis & BullMQ infrastructure
 - ✅ Event versioning foundation
 - ✅ Job queue architecture with type-safe contracts
-- ✅ Worker service skeleton with graceful shutdown
+- ✅ Worker service with graceful shutdown
+- ✅ Optimistic locking implementation in workers
 
-**Remaining** (Milestones 5-6 for MVP):
-- Milestone 5: Optimistic locking implementation in workers
-- Milestone 6: API migration to async (202 Accepted responses)
+**Remaining** (Milestone 6 for MVP):
+- Milestone 6: Migrate API routes to async pattern
+  - POST /bookings → 202 Accepted + jobId (instead of 201 Created)
+  - GET /bookings/status/:jobId → Poll job progress
+  - Update client flow to handle async booking
+  - Retire Level 2 pessimistic locking in API
 
 See: `docs/level3/LEVEL_3_MVP_PLAN.md` for detailed implementation guide
 
