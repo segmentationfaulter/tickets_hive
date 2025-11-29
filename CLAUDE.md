@@ -19,6 +19,7 @@ npm run docker:logs  # View logs
 npm run docker:stop  # Stop services
 npm run build        # Type-check all packages
 npm run test:load    # Load test (DON'T run during development)
+npm run docs         # View OpenAPI docs at http://localhost:8080
 ```
 
 ## Architecture
@@ -217,6 +218,25 @@ Run `npm run setup` to generate Docker secrets. Helper functions in `@ticket-hiv
 - No `dist/` folders
 - Must use `const` objects instead of enums
 
+## API Documentation
+
+**OpenAPI Specification**: `openapi.yaml` (root directory, OpenAPI 3.1.0)
+
+The project includes a complete OpenAPI specification documenting:
+- All API endpoints with request/response examples
+- Schema definitions for all types
+- JWT authentication (Bearer token)
+- Error codes and standardized responses
+- Async booking flow (Level 3)
+
+**Important**: When adding or modifying API endpoints:
+1. Implement the endpoint in code first
+2. Update `openapi.yaml` to match implementation
+3. Keep schemas, examples, and error codes in sync
+4. Document all query parameters, headers, and response codes
+
+**View docs**: Run `npm run docs` (opens at http://localhost:8080) or use [Swagger Editor](https://editor.swagger.io/)
+
 ## Common Tasks
 
 **Add API Endpoint**:
@@ -224,6 +244,7 @@ Run `npm run setup` to generate Docker secrets. Helper functions in `@ticket-hiv
 2. Implement service in `apps/api/src/services/` (factory pattern)
 3. Create route in `apps/api/src/routes/`
 4. Mount in `apps/api/src/index.ts`
+5. **Update `openapi.yaml`** with endpoint documentation
 
 **Modify Schema**:
 1. Edit `packages/database/src/schema.ts`

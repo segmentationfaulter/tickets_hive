@@ -5,7 +5,10 @@ import { queueService } from "../services/queueService.ts";
 import { handleError, ErrorCode } from "@ticket-hive/lib";
 import type {
   Booking,
+  BookingJobCreatedResponse,
+  BookingJobStatusResponse,
   SuccessResponse,
+  ErrorResponse,
 } from "@ticket-hive/types";
 import { BookingJobSchema } from "@ticket-hive/types";
 import { verifyJWT } from "../middleware/verify-token.ts";
@@ -42,14 +45,16 @@ router.post("/", verifyJWT, async (req, res) => {
     const jobId = await queueService.createBookingJob(jobData);
 
     // Return 202 Accepted (not 201 Created)
-    res.status(202).json({
+    const response: SuccessResponse<BookingJobCreatedResponse> = {
       success: true,
       data: {
         jobId,
         status: "pending",
-        message: "Booking request received. Check status at /api/v1/bookings/status/" + jobId,
       },
-    });
+      message: `Booking request received. Check status at /api/v1/bookings/status/${jobId}`,
+    };
+
+    res.status(202).json(response);
   } catch (error) {
     handleError(error, res, "createBooking");
   }
@@ -68,13 +73,14 @@ router.get("/status/:jobId", async (req, res) => {
 
     // Handle not found
     if (jobStatus.status === "not_found") {
-      return res.status(404).json({
+      const errorResponse: ErrorResponse = {
         success: false,
         error: {
           code: "JOB_NOT_FOUND",
           message: "Job not found. It may have expired or never existed.",
         },
-      });
+      };
+      return res.status(404).json(errorResponse);
     }
 
     // Map BullMQ states to user-friendly responses
@@ -90,35 +96,43 @@ router.get("/status/:jobId", async (req, res) => {
 
     // Return different responses based on state
     if (jobStatus.status === "completed") {
-      return res.json({
+      const response: SuccessResponse<BookingJobStatusResponse> = {
         success: true,
         data: {
-          status: userFriendlyStatus,
-          result: jobStatus.result,
-          message: "Booking completed successfully",
+          status: "completed",
+          result: {
+            bookingId: jobStatus.result!.bookingId,
+            eventId: jobStatus.result!.eventId,
+            remainingTickets: jobStatus.result!.remainingTickets,
+            version: jobStatus.result!.version,
+            processedAt: jobStatus.result!.processedAt,
+          },
         },
-      });
+        message: "Booking completed successfully",
+      };
+      return res.json(response);
     }
 
     if (jobStatus.status === "failed") {
-      return res.json({
+      const errorResponse: ErrorResponse = {
         success: false,
-        data: {
-          status: userFriendlyStatus,
-          error: jobStatus.failedReason || "Booking failed",
-          message: "Booking could not be completed",
+        error: {
+          code: "BOOKING_JOB_FAILED",
+          message: jobStatus.failedReason || "Booking could not be completed",
         },
-      });
+      };
+      return res.json(errorResponse);
     }
 
-    // Still processing
-    return res.json({
+    // Still processing (pending or active)
+    const response: SuccessResponse<BookingJobStatusResponse> = {
       success: true,
       data: {
-        status: userFriendlyStatus,
-        message: "Your booking is being processed. Please check again in a moment.",
+        status: userFriendlyStatus as "pending" | "processing",
       },
-    });
+      message: "Your booking is being processed. Please check again in a moment.",
+    };
+    return res.json(response);
   } catch (error) {
     return handleError(error, res, "getJobStatus");
   }
@@ -132,13 +146,14 @@ router.get("/:id", verifyJWT, async (req, res) => {
     const booking = await bookingService.getBooking(id);
 
     if (!booking) {
-      res.status(404).json({
+      const errorResponse: ErrorResponse = {
         success: false,
         error: {
           code: ErrorCode.BOOKING_NOT_FOUND,
           message: "Booking not found",
         },
-      });
+      };
+      res.status(404).json(errorResponse);
       return;
     }
 

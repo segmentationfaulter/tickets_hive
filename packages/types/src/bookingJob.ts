@@ -77,7 +77,10 @@ export interface BookingJobResult {
  * - "failed": All retries exhausted
  * - "delayed": Waiting for retry backoff
  * - "prioritized": Priority queue state
- * - "unknown": Unexpected state
+ * - "waiting-children": Waiting for child jobs to complete
+ * - "paused": Queue is paused
+ * - "repeat": Repeatable job
+ * - "unknown": Unexpected state (edge case from BullMQ)
  *
  * Usage:
  * - API polling endpoint (MVP)

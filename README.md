@@ -99,14 +99,23 @@ Timeout Rate: ~1-2% (acceptable)
    npm run test:load  # Runs 1000 concurrent requests to test Level 2
    ```
 
+5. **View API Documentation** (optional):
+   ```bash
+   npm run docs  # Opens interactive API docs at http://localhost:8080
+   ```
+
 ✨ **Environment Files**: The project uses `.env.example` as a template. Environment-specific files (`.env.local`, `.env.docker`, `.env.test`) are automatically ignored by Git and Docker for security.
 
-### Additional Docker Commands
+### Additional Commands
 
 ```bash
+# Docker
 npm run docker:logs    # View logs from all services
 npm run docker:stop    # Stop all services
 npm run docker:clean   # Stop and remove volumes (reset database)
+
+# Documentation
+npm run docs           # Preview OpenAPI documentation (http://localhost:8080)
 ```
 
 ### Environment Management
@@ -712,6 +721,25 @@ CREATE TABLE bookings (
 );
 ```
 
+### API Documentation
+
+**OpenAPI Specification**: [`openapi.yaml`](./openapi.yaml)
+
+This project includes a complete OpenAPI 3.0 specification that documents all API endpoints, request/response schemas, authentication, and error codes.
+
+**View the API Documentation**:
+- **Local Preview** (recommended): Run `npm run docs` - opens interactive docs at http://localhost:8080
+- **Online Editor**: Use [Swagger Editor](https://editor.swagger.io/) - paste the contents of `openapi.yaml`
+- **VSCode**: Install "OpenAPI (Swagger) Editor" extension for in-editor preview
+
+**What's Documented**:
+- ✅ All endpoints with examples
+- ✅ Request/response schemas
+- ✅ JWT authentication
+- ✅ Error codes and handling
+- ✅ Async booking flow (Level 3)
+- ✅ Rate limiting and retry strategies
+
 ### API Endpoints
 
 #### Authentication
@@ -723,10 +751,13 @@ CREATE TABLE bookings (
 - `GET /api/v1/events` - List events (paginated)
 - `GET /api/v1/events/:id` - Get event details
 
-#### Bookings
-- `POST /api/v1/bookings` - Create booking (authenticated)
-- `GET /api/v1/bookings/:id` - Get booking details
-- `DELETE /api/v1/bookings/:id` - Cancel booking
+#### Bookings (Level 3 - Async)
+- `POST /api/v1/bookings` - Create booking job (returns 202 Accepted with jobId)
+- `GET /api/v1/bookings/status/:jobId` - Poll job status (pending/processing/completed/failed)
+- `GET /api/v1/bookings/:id` - Get booking details (authenticated)
+- `DELETE /api/v1/bookings/:id` - Cancel booking (authenticated)
+
+For detailed request/response examples, see the [OpenAPI specification](./openapi.yaml).
 
 ---
 

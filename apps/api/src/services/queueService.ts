@@ -48,15 +48,12 @@ export function createQueueService(queue: BookingQueue): QueueService {
      * @throws ZodError - If validation fails (caught by errorHandler.ts)
      */
     async createBookingJob(data: BookingJobData): Promise<string> {
-      // Validate at API boundary (prevents invalid data in queue)
-      const validatedData = BookingJobSchema.parse(data);
-
       // Generate unique job ID
       const jobId = randomUUID();
 
       // Add job to queue with custom ID
       // BullMQ will persist this to Redis immediately
-      await queue.add("booking", validatedData, {
+      await queue.add("booking", data, {
         jobId, // Custom ID for easier tracking
       });
 

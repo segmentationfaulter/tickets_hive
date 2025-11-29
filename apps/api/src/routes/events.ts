@@ -8,6 +8,7 @@ import type {
   EventResponse,
   Event,
   SuccessResponse,
+  ErrorResponse,
 } from "@ticket-hive/types";
 import { verifyJWT } from "../middleware/verify-token.ts";
 import { requireAdmin } from "../middleware/require-admin.ts";
@@ -89,13 +90,14 @@ router.get("/:id", async (req, res) => {
     const event = await eventService.getEventById(id);
 
     if (!event) {
-      res.status(404).json({
+      const errorResponse: ErrorResponse = {
         success: false,
         error: {
           code: ErrorCode.EVENT_NOT_FOUND,
           message: "Event not found",
         },
-      });
+      };
+      res.status(404).json(errorResponse);
       return;
     }
 

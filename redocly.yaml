@@ -1,0 +1,7 @@
+apis:
+  tickethive@v1:
+    root: openapi.yaml
+    rules:
+      info-license: off
+      no-server-example.com: off
+      operation-operationId: off

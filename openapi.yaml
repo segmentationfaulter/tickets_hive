@@ -1,0 +1,822 @@
+openapi: 3.1.0
+info:
+  title: TicketHive API
+  description: |
+    High-concurrency ticket booking system with async queue-based processing.
+
+    ## Authentication
+    Most endpoints require JWT authentication. Include the token in the Authorization header:
+    ```
+    Authorization: Bearer <your-jwt-token>
+    ```
+
+    ## Async Booking Flow (Level 3)
+    1. POST /api/v1/bookings → Returns 202 Accepted with `jobId`
+    2. Poll GET /api/v1/bookings/status/{jobId} → Check job status
+    3. When status is "completed" → Booking is confirmed
+
+    ## Error Handling
+    All errors follow the standardized ErrorResponse format with error codes.
+  version: 1.0.0
+  contact:
+    name: TicketHive
+    url: https://github.com/yourusername/tickets-hive
+
+servers:
+  - url: http://localhost:3000
+    description: Local development server
+
+tags:
+  - name: Authentication
+    description: User registration and login
+  - name: Events
+    description: Event management (listing, creation, details)
+  - name: Bookings
+    description: Async ticket booking operations
+
+paths:
+  /auth/register:
+    post:
+      tags:
+        - Authentication
+      summary: Register a new user
+      description: Creates a new user account and returns JWT token
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterPayload'
+            example:
+              email: user@example.com
+              password: securepassword123
+              name: John Doe
+      responses:
+        '201':
+          description: User registered successfully
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          user:
+                            $ref: '#/components/schemas/User'
+                          token:
+                            type: string
+                            description: JWT authentication token
+              example:
+                success: true
+                data:
+                  user:
+                    id: 550e8400-e29b-41d4-a716-446655440000
+                    email: user@example.com
+                    name: John Doe
+                    role: user
+                  token: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+                message: User registered successfully
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /auth/login:
+    post:
+      tags:
+        - Authentication
+      summary: Login user
+      description: Authenticates user and returns JWT token
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginPayload'
+            example:
+              email: user@example.com
+              password: securepassword123
+      responses:
+        '200':
+          description: Login successful
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          user:
+                            $ref: '#/components/schemas/User'
+                          token:
+                            type: string
+              example:
+                success: true
+                data:
+                  user:
+                    id: 550e8400-e29b-41d4-a716-446655440000
+                    email: user@example.com
+                    name: John Doe
+                    role: user
+                  token: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+                message: Login successful
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /api/v1/events:
+    get:
+      tags:
+        - Events
+      summary: List all events
+      description: Retrieve paginated list of all events
+      security: []
+      parameters:
+        - name: limit
+          in: query
+          description: Number of events to return (max 100)
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 10
+        - name: offset
+          in: query
+          description: Number of events to skip
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+      responses:
+        '200':
+          description: Events retrieved successfully
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/EventResponse'
+              example:
+                success: true
+                data:
+                  events:
+                    - id: 550e8400-e29b-41d4-a716-446655440001
+                      name: Summer Music Festival
+                      total_tickets: 1000
+                      available_tickets: 850
+                      version: 5
+                      event_date: 2025-07-15T18:00:00Z
+                      created_at: 2025-01-01T10:00:00Z
+                      updated_at: 2025-01-15T14:30:00Z
+                  total: 42
+                  limit: 10
+                  offset: 0
+                message: Events retrieved successfully
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
+    post:
+      tags:
+        - Events
+      summary: Create a new event (admin only)
+      description: Creates a new event with specified ticket allocation
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateEventPayload'
+            example:
+              name: Summer Music Festival
+              totalTickets: 1000
+              eventDate: '2025-07-15T18:00:00Z'
+      responses:
+        '201':
+          description: Event created successfully
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/Event'
+              example:
+                success: true
+                data:
+                  id: 550e8400-e29b-41d4-a716-446655440001
+                  name: Summer Music Festival
+                  total_tickets: 1000
+                  available_tickets: 1000
+                  version: 0
+                  event_date: 2025-07-15T18:00:00Z
+                  created_at: 2025-01-01T10:00:00Z
+                  updated_at: 2025-01-01T10:00:00Z
+                message: Event created successfully
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /api/v1/events/{id}:
+    get:
+      tags:
+        - Events
+      summary: Get event by ID
+      description: Retrieve details of a specific event
+      security: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Event UUID
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Event retrieved successfully
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/Event'
+              example:
+                success: true
+                data:
+                  id: 550e8400-e29b-41d4-a716-446655440001
+                  name: Summer Music Festival
+                  total_tickets: 1000
+                  available_tickets: 850
+                  version: 5
+                  event_date: 2025-07-15T18:00:00Z
+                  created_at: 2025-01-01T10:00:00Z
+                  updated_at: 2025-01-15T14:30:00Z
+                message: Event retrieved successfully
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/v1/bookings:
+    post:
+      tags:
+        - Bookings
+      summary: Create booking (async)
+      description: |
+        Creates an async booking job and returns immediately with 202 Accepted.
+
+        **Flow:**
+        1. Returns `jobId` immediately (<100ms response)
+        2. Job is queued for processing by workers
+        3. Poll `/api/v1/bookings/status/{jobId}` to check status
+        4. When status is "completed", booking is confirmed
+
+        **Note:** This is a non-blocking operation using BullMQ queue system.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - eventId
+              properties:
+                eventId:
+                  type: string
+                  format: uuid
+                  description: UUID of the event to book
+            example:
+              eventId: 550e8400-e29b-41d4-a716-446655440001
+      responses:
+        '202':
+          description: Booking request accepted and queued
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/BookingJobCreatedResponse'
+              example:
+                success: true
+                data:
+                  jobId: 7c9e6679-7425-40de-944b-e07fc1f90ae7
+                  status: pending
+                message: 'Booking request received. Check status at /api/v1/bookings/status/7c9e6679-7425-40de-944b-e07fc1f90ae7'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /api/v1/bookings/status/{jobId}:
+    get:
+      tags:
+        - Bookings
+      summary: Get booking job status
+      description: |
+        Poll this endpoint to check the status of an async booking job.
+
+        **Possible statuses:**
+        - `pending` - Job is in queue, not yet processed
+        - `processing` - Worker is currently processing the job
+        - `completed` - Booking created successfully (includes booking details)
+        - `failed` - Booking failed (includes error reason)
+
+        **Polling recommendation:** Check every 1-2 seconds until status is completed/failed.
+      security: []
+      parameters:
+        - name: jobId
+          in: path
+          required: true
+          description: Job ID returned from POST /api/v1/bookings
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Job status retrieved
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - allOf:
+                      - $ref: '#/components/schemas/SuccessResponse'
+                      - type: object
+                        properties:
+                          data:
+                            type: object
+                            properties:
+                              status:
+                                type: string
+                                enum: [pending, processing]
+                  - allOf:
+                      - $ref: '#/components/schemas/SuccessResponse'
+                      - type: object
+                        properties:
+                          data:
+                            type: object
+                            properties:
+                              status:
+                                type: string
+                                enum: [completed]
+                              result:
+                                $ref: '#/components/schemas/BookingJobResult'
+                  - $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                pending:
+                  summary: Job is pending/processing
+                  value:
+                    success: true
+                    data:
+                      status: pending
+                    message: Your booking is being processed. Please check again in a moment.
+                completed:
+                  summary: Job completed successfully
+                  value:
+                    success: true
+                    data:
+                      status: completed
+                      result:
+                        bookingId: 660e8400-e29b-41d4-a716-446655440002
+                        eventId: 550e8400-e29b-41d4-a716-446655440001
+                        remainingTickets: 849
+                        version: 6
+                        processedAt: '2025-01-15T14:35:22Z'
+                    message: Booking completed successfully
+                failed:
+                  summary: Job failed
+                  value:
+                    success: false
+                    error:
+                      code: BOOKING_JOB_FAILED
+                      message: Event is sold out
+        '404':
+          description: Job not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                success: false
+                error:
+                  code: JOB_NOT_FOUND
+                  message: Job not found. It may have expired or never existed.
+
+  /api/v1/bookings/{id}:
+    get:
+      tags:
+        - Bookings
+      summary: Get booking by ID
+      description: Retrieve details of a confirmed booking
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Booking UUID
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Booking retrieved successfully
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/Booking'
+              example:
+                success: true
+                data:
+                  id: 660e8400-e29b-41d4-a716-446655440002
+                  user_id: 550e8400-e29b-41d4-a716-446655440000
+                  event_id: 550e8400-e29b-41d4-a716-446655440001
+                  status: CONFIRMED
+                  created_at: 2025-01-15T14:35:22Z
+                  updated_at: 2025-01-15T14:35:22Z
+                message: Booking retrieved successfully
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    delete:
+      tags:
+        - Bookings
+      summary: Cancel a booking
+      description: |
+        Cancels a confirmed booking and restores the ticket to the event.
+
+        **Atomic operation:** Uses PostgreSQL transaction with row-level locking
+        to ensure ticket is restored exactly once.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Booking UUID to cancel
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Booking cancelled successfully
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          id:
+                            type: string
+                            format: uuid
+                          status:
+                            type: string
+                            enum: [CANCELLED]
+                          updated_at:
+                            type: string
+                            format: date-time
+              example:
+                success: true
+                data:
+                  id: 660e8400-e29b-41d4-a716-446655440002
+                  status: CANCELLED
+                  updated_at: '2025-01-15T15:00:00Z'
+                message: Booking cancelled successfully
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: Booking already cancelled
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                success: false
+                error:
+                  code: BOOKING_ALREADY_CANCELLED
+                  message: This booking has already been cancelled
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: JWT token obtained from /auth/login or /auth/register
+
+  schemas:
+    # Common Response Wrappers
+    SuccessResponse:
+      type: object
+      required:
+        - success
+        - data
+      properties:
+        success:
+          type: boolean
+          enum: [true]
+        data:
+          type: object
+          description: Response data (type varies by endpoint)
+        message:
+          type: string
+          description: Human-readable success message
+
+    ErrorResponse:
+      type: object
+      required:
+        - success
+        - error
+      properties:
+        success:
+          type: boolean
+          enum: [false]
+        error:
+          type: object
+          required:
+            - code
+            - message
+          properties:
+            code:
+              type: string
+              description: Machine-readable error code
+              example: EVENT_NOT_FOUND
+            message:
+              type: string
+              description: Human-readable error message
+              example: Event not found
+
+    # Auth Schemas
+    RegisterPayload:
+      type: object
+      required:
+        - email
+        - password
+        - name
+      properties:
+        email:
+          type: string
+          format: email
+          description: User email address
+        password:
+          type: string
+          minLength: 6
+          description: User password (min 6 characters)
+        name:
+          type: string
+          minLength: 1
+          description: User full name
+
+    LoginPayload:
+      type: object
+      required:
+        - email
+        - password
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+
+    User:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        email:
+          type: string
+          format: email
+        name:
+          type: string
+        role:
+          type: string
+          enum: [user, admin]
+
+    # Event Schemas
+    Event:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+          description: Event name
+        total_tickets:
+          type: integer
+          description: Total tickets allocated for this event
+        available_tickets:
+          type: integer
+          description: Current number of available tickets
+        version:
+          type: integer
+          description: Optimistic locking version number
+        event_date:
+          type: string
+          format: date-time
+          description: Event date and time (ISO 8601)
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    CreateEventPayload:
+      type: object
+      required:
+        - name
+        - totalTickets
+        - eventDate
+      properties:
+        name:
+          type: string
+          minLength: 1
+          description: Event name
+        totalTickets:
+          type: integer
+          minimum: 1
+          description: Total tickets to allocate
+        eventDate:
+          type: string
+          format: date-time
+          description: Event date and time (ISO 8601 format)
+
+    EventResponse:
+      type: object
+      properties:
+        events:
+          type: array
+          items:
+            $ref: '#/components/schemas/Event'
+        total:
+          type: integer
+          description: Total number of events (across all pages)
+        limit:
+          type: integer
+          description: Number of events per page
+        offset:
+          type: integer
+          description: Number of events skipped
+
+    # Booking Schemas
+    Booking:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        user_id:
+          type: string
+          format: uuid
+        event_id:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [CONFIRMED, CANCELLED]
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    BookingJobCreatedResponse:
+      type: object
+      required:
+        - jobId
+        - status
+      properties:
+        jobId:
+          type: string
+          format: uuid
+          description: Unique job identifier for polling
+        status:
+          type: string
+          enum: [pending]
+          description: Initial job status (always "pending")
+
+    BookingJobResult:
+      type: object
+      properties:
+        bookingId:
+          type: string
+          format: uuid
+          description: UUID of created booking
+        eventId:
+          type: string
+          format: uuid
+          description: UUID of booked event
+        remainingTickets:
+          type: integer
+          description: Tickets still available after this booking
+        version:
+          type: integer
+          description: Event version after booking (optimistic locking)
+        processedAt:
+          type: string
+          format: date-time
+          description: When worker completed the booking
+
+  responses:
+    BadRequest:
+      description: Invalid request (validation error)
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            success: false
+            error:
+              code: VALIDATION_ERROR
+              message: Invalid email format
+
+    Unauthorized:
+      description: Missing or invalid authentication token
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            success: false
+            error:
+              code: UNAUTHORIZED
+              message: Invalid or expired token
+
+    Forbidden:
+      description: User does not have permission (admin required)
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            success: false
+            error:
+              code: FORBIDDEN
+              message: Admin access required
+
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            success: false
+            error:
+              code: RESOURCE_NOT_FOUND
+              message: Resource not found
+
+    Conflict:
+      description: Resource already exists
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            success: false
+            error:
+              code: USER_ALREADY_EXISTS
+              message: User with this email already exists
