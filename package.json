@@ -6,6 +6,9 @@
   "author": "",
   "type": "module",
   "packageManager": "npm@11.6.4",
+  "engines": {
+    "node": ">=24.0.0"
+  },
   "workspaces": [
     "apps/*",
     "packages/*"
