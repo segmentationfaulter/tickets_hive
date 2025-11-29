@@ -113,7 +113,7 @@ A production-ready backend system designed to handle high-concurrency scenarios 
 
 4. **Verify Setup**:
    ```bash
-   npm run test:load  # Runs 1,000 concurrent requests to test the system
+   npm run test:load:auto  # Runs 10,000 concurrent requests to test the system
    ```
 
 5. **View API Documentation**:
@@ -132,7 +132,8 @@ npm run docker:clean  # Stop and remove volumes (reset database)
 
 # Development
 npm run build         # Type-check all packages
-npm run test:load     # Run load tests
+npm run test:load     # Run load tests (manual setup)
+npm run test:load:auto # Run load tests (automatic setup)
 npm run docs          # Preview OpenAPI documentation
 ```
 
@@ -344,21 +345,61 @@ Access at http://localhost:3001
 
 The project includes a comprehensive load test that simulates real-world flash sale scenarios:
 
+### Running the Load Test
+
+**Prerequisites:**
+- Docker services must be running (`npm run docker:dev`)
+- Services must be healthy (check with `docker compose ps`)
+
+**Method 1: Quick Test (Recommended)**
 ```bash
+# Run with default settings (10,000 concurrent requests, 100 tickets)
+# Automatically reads secrets from Docker configuration
+npm run test:load:auto
+```
+
+**Method 2: Custom Test**
+```bash
+# Customize concurrent requests and available tickets
+CONCURRENT_REQUESTS=5000 TICKETS_AVAILABLE=50 npm run test:load:auto
+```
+
+**Method 3: Manual Environment Setup**
+```bash
+# Full manual control (useful for debugging)
+API_BASE_URL=http://localhost:3000 \
+POSTGRES_HOST=localhost \
+POSTGRES_DB=tickets_hive \
+POSTGRES_USER=postgres \
+POSTGRES_PASSWORD=coolfool \
+JWT_SECRET=64820da57de1118efb6a12a873c19140 \
+npm run test:load
+```
+
+**Method 4: Using the Manual Script**
+```bash
+# Use the manual script (same as npm run test:load)
 npm run test:load
 ```
 
 **What it tests:**
-- 1,000 concurrent booking requests
-- 100 available tickets
+- 10,000 concurrent booking requests (configurable)
+- 100 available tickets (configurable)
 - Measures response times, throughput, and data integrity
-- Verifies zero overbookings
+- Verifies zero overbookings with optimistic locking
+- Tests async queue-based processing architecture
 
 **Expected Results:**
 - 100 successful bookings (exactly matching available tickets)
-- ~88% "sold out" responses (expected for remaining requests)
-- <100ms average response time
+- ~99% "sold out" responses (expected for remaining requests)
+- Sub-100ms API response times (202 Accepted)
 - Zero race conditions or data corruption
+- High timeout rate under extreme load (expected behavior)
+
+**Troubleshooting:**
+- If you get authentication errors, ensure Docker services are running
+- If you get database connection errors, verify the database password matches secrets/db_password.txt
+- For performance tuning, increase WORKER_CONCURRENCY environment variable when starting services
 
 ## 🎓 Key Architectural Decisions
 
