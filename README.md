@@ -61,10 +61,10 @@
 
 ## ✨ Key Features
 
-- **🚀 Async Processing**: Immediate 202 Accepted responses with job tracking
+- **🚀 Async Processing**: Immediate `202 Accepted` responses with job tracking
 - **🔒 Optimistic Locking**: Version-based concurrency control without database locks
 - **📈 Horizontal Scalability**: Independent scaling of API and worker services
-- **🔔 Real-time Updates**: Server-Sent Events for booking status
+- **📡 Status Polling**: Job status tracking via polling endpoints, SSE enhancement coming
 - **🛡️ Type Safety**: Full TypeScript coverage with runtime validation
 - **⚠️ Error Handling**: Comprehensive error categorization and user-friendly messages
 
