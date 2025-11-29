@@ -26,7 +26,7 @@ const idParamSchema = z.object({
 /**
  * POST /api/v1/bookings
  *
- * Level 3: Async queue-based booking
+ * Async queue-based booking
  * Returns 202 Accepted with jobId for status polling
  */
 router.post("/", verifyJWT, async (req, res) => {

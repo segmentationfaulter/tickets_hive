@@ -6,8 +6,6 @@ const password = getPostgresPassword();
 /**
  * PostgreSQL Connection Configuration for TicketHive
  *
- * Level 2 Enhancement: Connection Pooling & Timeout Configuration
- *
  * Connection Pool Settings:
  * - max: 20 connections - Balances concurrency with database resource limits
  *   * Allows handling ~50-100 concurrent requests efficiently
@@ -26,7 +24,6 @@ const password = getPostgresPassword();
  *
  * Statement Timeout:
  * - statement_timeout: 5000ms (5 seconds) - Prevents queries from hanging indefinitely
- *   * CRITICAL for Level 2's FOR UPDATE locks under high contention
  *   * If a transaction holds a lock for >5s, PostgreSQL terminates it
  *   * Prevents cascading delays where hundreds of requests wait for one slow transaction
  *   * Returns error code 57014 (query_canceled) which we handle as STATEMENT_TIMEOUT
@@ -40,7 +37,6 @@ const password = getPostgresPassword();
  *   * Normal booking operation: <100ms
  *   * Under high contention: 100-500ms waiting for locks
  *   * Extreme contention: Some requests timeout after 5s (better than waiting indefinitely)
- *   * If >20% of requests timeout, consider Level 3 (queues) instead of increasing this value
  *
  * Trade-offs:
  * ✅ Pros:
@@ -58,12 +54,6 @@ const password = getPostgresPassword();
  * - Increase max connections: If connection pool exhaustion errors occur frequently
  * - Increase statement_timeout: If legitimate operations are timing out (but investigate why first!)
  * - Decrease statement_timeout: If you want even faster failure under contention (not recommended)
- *
- * Next Level (Level 3):
- * When these timeouts become a bottleneck (>20% timeout rate), implement:
- * - BullMQ job queues for asynchronous processing
- * - Return 202 Accepted immediately, process bookings in background workers
- * - This eliminates timeout issues by decoupling request acceptance from processing
  */
 const sql = postgres({
   host: env.POSTGRES_HOST,

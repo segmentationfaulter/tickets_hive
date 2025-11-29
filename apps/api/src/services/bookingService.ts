@@ -27,33 +27,19 @@ function createBookingService(db: Database): BookingService {
 
     async cancelBooking(bookingId: string): Promise<Booking> {
       /**
-       * Level 2 Implementation: Transactional Booking Cancellation
+       * Transactional Booking Cancellation
        *
-       * This method uses PostgreSQL transactions with row-level locking (FOR UPDATE)
-       * to ensure atomic cancellation and ticket restoration.
+       * Uses PostgreSQL transactions with row-level locking (FOR UPDATE) to ensure
+       * atomic cancellation and ticket restoration.
        *
-       * How it works:
-       * 1. BEGIN TRANSACTION - Start atomic operation
-       * 2. SELECT ... FOR UPDATE - Lock the booking row (prevents double-cancellation)
-       * 3. Validate booking exists and is not already cancelled
-       * 4. Update booking status to CANCELLED
-       * 5. Increment event's available_tickets (restore the ticket)
-       * 6. COMMIT - If all steps succeed, commit changes
-       * 7. ROLLBACK - If any step fails, rollback all changes
+       * Flow:
+       * 1. Lock the booking row with FOR UPDATE
+       * 2. Validate booking exists and is not already cancelled
+       * 3. Update booking status to CANCELLED
+       * 4. Restore ticket to event
+       * 5. Commit transaction (or rollback on error)
        *
-       * Why FOR UPDATE is critical:
-       * Without FOR UPDATE, two concurrent cancellation requests for the same booking
-       * could both see status='CONFIRMED', both proceed to cancel, and both increment
-       * available_tickets, resulting in incorrect ticket count (+2 instead of +1).
-       * FOR UPDATE ensures only one cancellation can proceed at a time.
-       *
-       * Atomicity guarantee:
-       * Either BOTH the booking is cancelled AND the ticket is restored, or NEITHER happens.
-       * This prevents data inconsistency where a booking is marked cancelled but the
-       * ticket count is not updated (or vice versa).
-       *
-       * Error Handling Strategy:
-       * Errors are allowed to propagate to the route layer for centralized handling.
+       * FOR UPDATE prevents concurrent cancellations that could over-restore tickets.
        */
       return await db.begin(async (transaction: any) => {
         // Step 1: Lock the booking row with FOR UPDATE

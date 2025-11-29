@@ -247,7 +247,7 @@ function printResults(result: LoadTestResult): void {
 
   console.log("\n" + "=".repeat(70));
   console.log(
-    "📊 LOAD TEST RESULTS - Level 2 (Transaction + Timeout Handling)",
+    "📊 LOAD TEST RESULTS",
   );
   console.log("=".repeat(70));
 
@@ -277,27 +277,24 @@ function printResults(result: LoadTestResult): void {
   console.log(`  Actual Bookings: ${result.successfulBookings}`);
   console.log(`  Available Tickets: ${result.availableTickets}`);
 
-  console.log("\n✅ Race Condition Analysis:");
+  console.log("\n✅ Data Integrity Check:");
   if (result.raceConditionDetected) {
-    console.log("  🔴 RACE CONDITION: DETECTED ❌");
+    console.log("  🔴 DATA INTEGRITY: FAILED ❌");
     console.log(
       `     - Overbooking detected: ${result.successfulBookings} > ${result.expectedBookings}`,
     );
     console.log(`     - OR negative tickets: ${result.availableTickets} < 0`);
-    console.log(
-      "     - This should NOT happen in Level 2! Check transaction implementation.",
-    );
   } else {
-    console.log("  🟢 RACE CONDITION: NONE ✅");
+    console.log("  🟢 DATA INTEGRITY: PASSED ✅");
     console.log(
       `     - Exact match: ${result.successfulBookings} == ${result.expectedBookings}`,
     );
     console.log(`     - No negative tickets: ${result.availableTickets} >= 0`);
-    console.log("     - Transactions working correctly!");
+    console.log("     - System working correctly!");
   }
 
   console.log("\n" + "=".repeat(70));
-  console.log("💡 Level 2 Key Insights:");
+  console.log("💡 Key Insights:");
   console.log(
     `   ✅ ${bookingSuccessRate}% booking rate is CORRECT (${result.expectedBookings} tickets / ${result.totalRequests} requests)`,
   );
@@ -308,14 +305,6 @@ function printResults(result: LoadTestResult): void {
     console.log(
       `   ⚠️  ${result.timeoutResponses} timeout(s) occurred (${((result.timeoutResponses / result.totalRequests) * 100).toFixed(1)}%)`,
     );
-    console.log(
-      "      This is acceptable under extreme load with Level 2's locking.",
-    );
-    if ((result.timeoutResponses / result.totalRequests) * 100 > 20) {
-      console.log(
-        "      ⚠️  >20% timeout rate suggests moving to Level 3 (queues) for better throughput.",
-      );
-    }
   } else {
     console.log("   ✅ No timeout errors - excellent!");
   }
@@ -325,7 +314,7 @@ function printResults(result: LoadTestResult): void {
 
 async function main() {
   console.log("\n" + "=".repeat(70));
-  console.log("🚀 TICKETHIVE LOAD TEST - Race Condition Demonstration");
+  console.log("🚀 TICKETHIVE LOAD TEST");
   console.log("=".repeat(70) + "\n");
 
   try {

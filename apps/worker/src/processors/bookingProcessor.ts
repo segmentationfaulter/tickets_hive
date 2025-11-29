@@ -9,7 +9,7 @@ import { AppError, ErrorCode } from "@ticket-hive/lib";
 type Database = typeof import("@ticket-hive/database").sql;
 
 /**
- * Booking Job Processor Factory (Milestone 5)
+ * Booking Job Processor Factory
  *
  * Creates a processor function with optimistic locking for high-concurrency booking.
  *
@@ -19,11 +19,7 @@ type Database = typeof import("@ticket-hive/database").sql;
  * - If version changed → UPDATE returns 0 rows → throw VERSION_CONFLICT
  * - BullMQ automatically retries (max 3 attempts, exponential backoff)
  *
- * vs Level 2 Pessimistic Locking:
- * - Level 2: SELECT ... FOR UPDATE (blocks, lower throughput)
- * - Level 3: SELECT + UPDATE WHERE version = X (no blocking, higher throughput)
- *
- * Trade-offs:
+ * Benefits:
  * ✅ Higher throughput (no lock contention)
  * ✅ Better scalability (can add more workers)
  * ⚠️  Version conflicts under high contention (acceptable, retries succeed)
@@ -131,7 +127,7 @@ export function createBookingProcessor(db: Database) {
       );
 
       // Step 7: Return job result (stored in Redis by BullMQ)
-      // Clients can retrieve via GET /api/v1/bookings/status/:jobId (Milestone 6)
+      // Clients can retrieve via GET /api/v1/bookings/status/:jobId
       return {
         success: true,
         bookingId: booking.id,

@@ -6,7 +6,7 @@ import type { BookingJobData, BookingJobResult, BookingQueue } from "@ticket-hiv
 /**
  * Booking Queue Configuration
  *
- * This queue handles all ticket booking jobs in Level 3.
+ * This queue handles all ticket booking jobs.
  * Jobs are added by the API service and processed by worker service.
  *
  * Queue Name: "booking"

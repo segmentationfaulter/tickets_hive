@@ -12,7 +12,7 @@ export interface Booking {
 /**
  * Booking Job Created Response
  *
- * Response data for POST /api/v1/bookings (Level 3 async)
+ * Response data for POST /api/v1/bookings (async)
  * Returned when a booking job is successfully created and queued
  */
 export interface BookingJobCreatedResponse {

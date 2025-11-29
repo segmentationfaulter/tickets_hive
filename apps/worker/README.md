@@ -3,16 +3,17 @@
 Job queue worker for processing asynchronous booking operations using BullMQ.
 
 ## Structure
-- `src/` - TypeScript source files (will be populated in Milestone 4)
+- `src/` - TypeScript source files
+- `src/processors/` - Job processors (bookingProcessor.ts)
 
-## Purpose (Future)
-Will handle background job processing for Level 3 async booking operations:
+## Purpose
+Handles background job processing for async booking operations:
 - Process booking queue jobs from BullMQ
 - Execute database operations without blocking API
 - Send real-time updates via Server-Sent Events
 - Handle booking confirmation/status updates
 
-## Dependencies (Future)
+## Dependencies
 - `@ticket-hive/database` - Shared database layer
 - `@ticket-hive/types` - Shared TypeScript types
 - `@ticket-hive/lib` - Shared utilities

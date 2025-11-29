@@ -47,7 +47,7 @@ export type BookingJobData = z.infer<typeof BookingJobSchema>;
  * - processedAt: ISO timestamp when worker completed the job
  *
  * Usage:
- * - Returned by worker processor (Milestone 4+)
+ * - Returned by worker processor
  * - Stored in Redis by BullMQ as job.returnvalue
  * - Sent to clients via GET /api/v1/bookings/status/:jobId
  * - Used for SSE real-time updates
@@ -109,7 +109,7 @@ export type JobStatusResult =
  * Usage:
  * - Queue instantiation in packages/lib/src/queues.ts
  * - Factory function parameters in apps/api/src/services/queueService.ts
- * - Worker processor type annotations (Milestone 4+)
+ * - Worker processor type annotations
  * - Testing mocks
  */
 export type BookingQueue = Queue<BookingJobData, BookingJobResult>;
