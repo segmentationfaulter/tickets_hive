@@ -1,10 +1,10 @@
-# 🎫 TicketHive - High-Concurrency Event Booking System
+# 🎫 TicketsHive - High-Concurrency Event Booking System
 
 🚀 A production-ready backend system designed to handle high-concurrency scenarios like flash sales where thousands of users compete for limited inventory simultaneously.
 
 ## 📖 Overview
 
-🎯 TicketHive solves the challenge of building a system that can handle extreme concurrency scenarios where thousands of users simultaneously attempt to purchase from limited ticket inventory without any overbookings. The solution uses an async queue-based architecture with optimistic locking that provides sub-100ms API response times, 100% data integrity, and horizontal scalability.
+🎯 TicketsHive solves the challenge of building a system that can handle extreme concurrency scenarios where thousands of users simultaneously attempt to purchase from limited ticket inventory without any overbookings. The solution uses an async queue-based architecture with optimistic locking that provides sub-100ms API response times, 100% data integrity, and horizontal scalability.
 
 ## 🛠️ Tech Stack
 
