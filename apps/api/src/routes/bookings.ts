@@ -1,14 +1,13 @@
 import { Router } from "express";
 import { z } from "zod";
 import { bookingService } from "../services/bookingService.ts";
-import { eventService } from "../services/eventService.ts";
+import { queueService } from "../services/queueService.ts";
 import { handleError, ErrorCode } from "@ticket-hive/lib";
 import type {
-  CreateBookingPayload,
-  BookingResponse,
   Booking,
   SuccessResponse,
 } from "@ticket-hive/types";
+import { BookingJobSchema } from "@ticket-hive/types";
 import { verifyJWT } from "../middleware/verify-token.ts";
 
 const router = Router();
@@ -21,33 +20,107 @@ const idParamSchema = z.object({
   id: z.uuid("Invalid booking ID format"),
 });
 
-// POST /api/v1/bookings - Create a booking (authenticated users)
+/**
+ * POST /api/v1/bookings
+ *
+ * Level 3: Async queue-based booking
+ * Returns 202 Accepted with jobId for status polling
+ */
 router.post("/", verifyJWT, async (req, res) => {
   try {
-    const payload: CreateBookingPayload = createBookingSchema.parse(req.body);
+    const userId = req.user!.userId;
+    const { eventId } = createBookingSchema.parse(req.body);
 
-    const booking = await bookingService.createBooking(
-      req.user!.userId,
-      payload,
-    );
+    // Validate job data with Zod schema
+    const jobData = BookingJobSchema.parse({
+      userId,
+      eventId,
+      timestamp: Date.now(),
+    });
 
-    // Get updated event to return available tickets
-    const event = await eventService.getEventById(payload.eventId);
+    // Create job and return immediately (non-blocking)
+    const jobId = await queueService.createBookingJob(jobData);
 
-    const response: SuccessResponse<BookingResponse> = {
+    // Return 202 Accepted (not 201 Created)
+    res.status(202).json({
       success: true,
       data: {
-        bookingId: booking.id,
-        eventId: booking.event_id,
-        status: booking.status,
-        availableTickets: event?.available_tickets ?? 0,
+        jobId,
+        status: "pending",
+        message: "Booking request received. Check status at /api/v1/bookings/status/" + jobId,
       },
-      message: "Booking confirmed successfully",
-    };
-
-    res.status(201).json(response);
+    });
   } catch (error) {
     handleError(error, res, "createBooking");
+  }
+});
+
+/**
+ * GET /api/v1/bookings/status/:jobId
+ *
+ * Returns job status for polling
+ * States: pending, processing, completed, failed
+ */
+router.get("/status/:jobId", async (req, res) => {
+  try {
+    const { jobId } = req.params;
+    const jobStatus = await queueService.getJobStatus(jobId);
+
+    // Handle not found
+    if (jobStatus.status === "not_found") {
+      return res.status(404).json({
+        success: false,
+        error: {
+          code: "JOB_NOT_FOUND",
+          message: "Job not found. It may have expired or never existed.",
+        },
+      });
+    }
+
+    // Map BullMQ states to user-friendly responses
+    const statusMap: Record<string, string> = {
+      waiting: "pending",
+      delayed: "pending",
+      active: "processing",
+      completed: "completed",
+      failed: "failed",
+    };
+
+    const userFriendlyStatus = statusMap[jobStatus.status] || jobStatus.status;
+
+    // Return different responses based on state
+    if (jobStatus.status === "completed") {
+      return res.json({
+        success: true,
+        data: {
+          status: userFriendlyStatus,
+          result: jobStatus.result,
+          message: "Booking completed successfully",
+        },
+      });
+    }
+
+    if (jobStatus.status === "failed") {
+      return res.json({
+        success: false,
+        data: {
+          status: userFriendlyStatus,
+          error: jobStatus.failedReason || "Booking failed",
+          message: "Booking could not be completed",
+        },
+      });
+    }
+
+    // Still processing
+    return res.json({
+      success: true,
+      data: {
+        status: userFriendlyStatus,
+        message: "Your booking is being processed. Please check again in a moment.",
+      },
+    });
+  } catch (error) {
+    return handleError(error, res, "getJobStatus");
   }
 });
 

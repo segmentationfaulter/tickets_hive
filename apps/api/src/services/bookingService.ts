@@ -1,5 +1,5 @@
 import { sql } from "@ticket-hive/database";
-import type { Booking, CreateBookingPayload } from "@ticket-hive/types";
+import type { Booking } from "@ticket-hive/types";
 import {
   AppError,
   ErrorCode,
@@ -8,82 +8,12 @@ import {
 type Database = typeof sql;
 
 interface BookingService {
-  createBooking(
-    userId: string,
-    payload: CreateBookingPayload,
-  ): Promise<Booking>;
   getBooking(bookingId: string): Promise<Booking | null>;
   cancelBooking(bookingId: string): Promise<Booking>;
 }
 
 function createBookingService(db: Database): BookingService {
   return {
-    async createBooking(
-      userId: string,
-      payload: CreateBookingPayload,
-    ): Promise<Booking> {
-      return await db.begin(async (transaction: any) => {
-        // Step 1: Lock the event row with FOR UPDATE
-        // This prevents other transactions from reading or modifying this event
-        // until our transaction completes (COMMIT or ROLLBACK)
-        const events = await transaction<
-          Array<{
-            id: string;
-            name: string;
-            available_tickets: number;
-            version: number;
-          }>
-        >`
-          SELECT id, name, available_tickets, version
-          FROM events
-          WHERE id = ${payload.eventId}
-          FOR UPDATE
-        `;
-
-        // Step 2: Validate event exists
-        if (events.length === 0) {
-          throw new AppError(ErrorCode.EVENT_NOT_FOUND);
-        }
-
-        const event = events[0];
-
-        if (!event) {
-          throw new AppError(ErrorCode.EVENT_NOT_FOUND);
-        }
-
-        // Step 3: Check if tickets are available
-        // This check is now safe because we hold an exclusive lock on this row
-        if (event.available_tickets <= 0) {
-          throw new AppError(ErrorCode.EVENT_SOLD_OUT);
-        }
-
-        // Step 4: Decrement available_tickets (within same transaction)
-        await transaction`
-          UPDATE events
-          SET available_tickets = available_tickets - 1,
-              version = version + 1,
-              updated_at = NOW()
-          WHERE id = ${payload.eventId}
-        `;
-
-        // Step 5: Create booking record (within same transaction)
-        // If this fails, the entire transaction rolls back (including the ticket decrement)
-        const bookings = await transaction<Booking[]>`
-          INSERT INTO bookings (user_id, event_id, status)
-          VALUES (${userId}, ${payload.eventId}, 'CONFIRMED')
-          RETURNING id, user_id, event_id, status, created_at, updated_at
-        `;
-
-        if (bookings.length === 0) {
-          throw new Error("INSERT INTO bookings returned no rows");
-        }
-
-        // If we reach here, transaction will COMMIT automatically
-        // The lock is released and other waiting transactions can proceed
-        return bookings[0];
-      });
-    },
-
     async getBooking(bookingId: string): Promise<Booking | null> {
       const bookings = await db<Booking[]>`
         SELECT id, user_id, event_id, status, created_at, updated_at

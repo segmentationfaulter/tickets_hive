@@ -9,10 +9,6 @@ export interface Booking {
   updated_at: Date;
 }
 
-export interface CreateBookingPayload {
-  eventId: string;
-}
-
 export interface BookingResponse {
   bookingId: string;
   eventId: string;
