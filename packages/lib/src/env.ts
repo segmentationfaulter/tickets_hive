@@ -49,7 +49,7 @@ export const env = createEnv({
     REDIS_PASSWORD: z.string().optional(),
 
     // Worker configuration (MVP: simple values)
-    WORKER_CONCURRENCY: z.coerce.number().default(1), // Number of jobs a worker can process concurrently
+    WORKER_CONCURRENCY: z.coerce.number().default(3), // Number of jobs a worker can process concurrently
     WORKER_MAX_RETRIES: z.coerce.number().default(3),
     WORKER_RETRY_DELAY_MS: z.coerce.number().default(100),
   },
